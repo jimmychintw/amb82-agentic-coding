@@ -15,18 +15,24 @@ list(
 ### add flags ###
 list(
 	APPEND app_example_flags
+	# Activate the RTL8735B DWC2 port path inside dcd_dwc2.c
+	-DTUP_USBIP_DWC2=1
+	-DTUP_USBIP_DWC2_RTL8735B=1
 )
 
 ### add header files ###
 list (
 	APPEND app_example_inc_path
 	${TINYUSB_ROOT}/src
+	# Our BSP and platform port headers live in the same src/ directory
+	${CMAKE_CURRENT_LIST_DIR}
 )
 
 ### add source file ###
 list(
 	APPEND app_example_sources
 	app_example.c
+	board_amb82.c
 	${TINYUSB_ROOT}/src/tusb.c
 	${TINYUSB_ROOT}/src/common/tusb_fifo.c
 	${TINYUSB_ROOT}/src/device/usbd.c
@@ -35,6 +41,6 @@ list(
 	${TINYUSB_ROOT}/src/portable/synopsys/dwc2/dwc2_common.c
 	${TINYUSB_ROOT}/src/class/cdc/cdc_device.c
 )
-# Only prepend CMAKE_CURRENT_LIST_DIR to local source files (app_*.c).
+# Prepend CMAKE_CURRENT_LIST_DIR to local source files (app_*.c and board_*.c).
 # TinyUSB sources already use absolute paths via ${TINYUSB_ROOT}.
-list(TRANSFORM app_example_sources PREPEND ${CMAKE_CURRENT_LIST_DIR}/ REGEX "^app_")
+list(TRANSFORM app_example_sources PREPEND ${CMAKE_CURRENT_LIST_DIR}/ REGEX "^(app_|board_)")

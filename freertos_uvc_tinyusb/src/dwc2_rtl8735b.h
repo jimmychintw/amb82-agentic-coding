@@ -201,30 +201,27 @@ extern "C" {
 #define USB_OTG_IRQ_NUM             25
 
 /* ===========================================================================
- * Section 6: dwc2_controller_t forward-compatible placeholder
+ * Section 6: TinyUSB DWC2 port — controller descriptor + inline functions
  *
- * TinyUSB defines dwc2_controller_t in:
- *   src/portable/synopsys/dwc2/dwc2_type.h
- *
- * A typical entry looks like:
- *   { .reg_base = 0x400C0000UL, .irqnum = 25, .ep_count = 6,
- *     .ep_fifo_size = 0x1000U }
- *
- * The exact fields depend on the TinyUSB version.  Once lib/tinyusb/ is
- * populated, uncomment and adjust the block below, then #include the proper
- * TinyUSB type header.
- *
- * #include "portable/synopsys/dwc2/dwc2_type.h"
- *
- * static const dwc2_controller_t _dwc2_controller[] = {
- *     {
- *         .reg_base      = USB_OTG_REG_BASE,   // 0x400C0000
- *         .irqnum        = USB_OTG_IRQ_NUM,    // 25
- *         .ep_count      = 6,                  // adjust to actual HW value
- *         .ep_fifo_size  = USB_OTG_FIFO_SIZE,  // 0x1000
- *     },
- * };
+ * This section satisfies the TinyUSB 0.17.0 DWC2 port contract as defined in
+ * src/portable/synopsys/dwc2/dcd_dwc2.c.  The ESP32 port (dwc2_esp32.h) was
+ * used as a template.
  * =========================================================================*/
+
+#include "portable/synopsys/dwc2/dwc2_type.h"
+
+/** Conservative endpoint count — will be confirmed from GHWCFG2 at runtime */
+#define DWC2_EP_MAX   6
+
+/** Controller descriptor table (index 0 = rhport 0) */
+static const dwc2_controller_t _dwc2_controller[] = {
+    {
+        .reg_base     = USB_OTG_REG_BASE,   /* 0x400C0000 */
+        .irqnum       = USB_OTG_IRQ_NUM,    /* 25 */
+        .ep_count     = DWC2_EP_MAX,
+        .ep_fifo_size = 4096,               /* 4 KB shared FIFO RAM */
+    },
+};
 
 /* ===========================================================================
  * Section 7: Register access convenience macros
@@ -244,57 +241,118 @@ extern "C" {
     (*(volatile uint32_t *)((uint32_t)(base) + (uint32_t)(offset)) = (uint32_t)(value))
 
 /* ===========================================================================
- * Section 8: Function declarations (implemented in dwc2_rtl8735b.c / bsp.c)
+ * Section 8: TinyUSB DWC2 port — required inline functions
+ *
+ * These four functions are called directly by dcd_dwc2.c and must be present
+ * as static inline in this header.  Signatures must match exactly.
  * =========================================================================*/
 
 /**
- * @brief  Power-up and initialize the USB PHY and OTG core clocks.
+ * Enable the USB OTG interrupt in the NVIC.
+ * TinyUSB calls this after initialising the device controller.
+ */
+TU_ATTR_ALWAYS_INLINE static inline void dwc2_dcd_int_enable(uint8_t rhport) {
+    (void)rhport;
+    NVIC_EnableIRQ((IRQn_Type)USB_OTG_IRQ_NUM);
+}
+
+/**
+ * Disable the USB OTG interrupt in the NVIC.
+ * TinyUSB calls this when tearing down or suspending the device controller.
+ */
+TU_ATTR_ALWAYS_INLINE static inline void dwc2_dcd_int_disable(uint8_t rhport) {
+    (void)rhport;
+    NVIC_DisableIRQ((IRQn_Type)USB_OTG_IRQ_NUM);
+}
+
+/**
+ * Remote-wakeup delay (~1 ms).
+ * A simple busy-wait loop is used here; replace with an RTOS delay when the
+ * scheduler is running.
+ */
+TU_ATTR_ALWAYS_INLINE static inline void dwc2_remote_wakeup_delay(void) {
+    /* ~1 ms at 500 MHz (Cortex-M55 max clock).  Adjust if clock changes. */
+    volatile uint32_t count = 500000UL;
+    while (count--) { __asm volatile ("nop"); }
+}
+
+/**
+ * MCU-specific PHY initialisation — called BEFORE the DWC2 core reset.
  *
  * Sequence (derived from Realtek SDK usb_chip_init / usb_hal_board_init):
  *  1. Enable SoC functional clocks via HP_OTG_FUNC_CLK_CTRL_REG.
- *  2. Assert addon-register enables: APHY_EN, DPHY_FEN, OTG_RST.
- *  3. Wait for UPLL_CKRDY to assert.
- *  4. Configure PHY paged registers (impedance, OTG enable, etc.).
+ *  2. Clear power-down bits and assert power/BG enables.
+ *  3. Assert addon-register enables: APHY_EN, DPHY_FEN, OTG_RST.
+ *  4. Busy-wait for UPLL_CKRDY to assert (PHY PLL locked).
  *
- * @return true on success (UPLL_CKRDY asserted within timeout), false otherwise.
+ * The dwc2 / hs_phy_type parameters are provided by TinyUSB; for RTL8735B
+ * the internal FS-only PHY is always used and hs_phy_type is ignored.
  */
-bool dwc2_phy_init(void);
+TU_ATTR_ALWAYS_INLINE static inline void dwc2_phy_init(dwc2_regs_t* dwc2,
+                                                        uint8_t hs_phy_type) {
+    (void)dwc2;
+    (void)hs_phy_type;
+
+    /* --- Step 1: SoC clock / power enable (HP_OTG_FUNC_CLK_CTRL) --- */
+    volatile uint32_t *clk_ctrl = (volatile uint32_t *)HP_OTG_FUNC_CLK_CTRL_ADDR;
+    uint32_t val = *clk_ctrl;
+
+    /* Clear power-down and isolation bits, then set enable bits */
+    val &= ~(HP_OTG_CLK_PDN | HP_OTG_CLK_DISO_EN | HP_OTG_CLK_AISO_EN);
+    val |= (HP_OTG_CLK_OTG_EN     |
+            HP_OTG_CLK_OTG_CLK_EN |
+            HP_OTG_CLK_UTMI_CLK_EN|
+            HP_OTG_CLK_BG_EN      |
+            HP_OTG_CLK_ANA_HV_EN  |
+            HP_OTG_CLK_DIGI_PC_EN |
+            HP_OTG_CLK_IBX_USB_EN);
+    *clk_ctrl = val;
+
+    /* Short settle delay (>= 200 µs per datasheet) */
+    volatile uint32_t dly = 100000UL;
+    while (dly--) { __asm volatile ("nop"); }
+
+    /* --- Step 2: Addon register — enable PHY and OTG core --- */
+    volatile uint32_t *addon_ctrl =
+        (volatile uint32_t *)(USB_OTG_REG_BASE + USB_OTG_ADDON_REG_CTRL);
+
+    uint32_t addon = *addon_ctrl;
+    addon |= (USB_OTG_ADDON_USB_APHY_EN |
+              USB_OTG_ADDON_USB_DPHY_FEN |
+              USB_OTG_ADDON_USB_OTG_RST);
+    *addon_ctrl = addon;
+
+    /* --- Step 3: Wait for PHY PLL to lock (UPLL_CKRDY) --- */
+    uint32_t timeout = 200000UL;
+    while (!(*addon_ctrl & USB_OTG_ADDON_UPLL_CKRDY) && --timeout) {
+        __asm volatile ("nop");
+    }
+    /* Timeout is non-fatal here; TinyUSB will detect a core that never
+     * responds and the higher-level init will fail gracefully. */
+}
 
 /**
- * @brief  Update / re-calibrate PHY settings after enumeration speed is known.
+ * MCU-specific PHY update — called AFTER the DWC2 core reset.
  *
- * Called by the TinyUSB DWC2 port after the ENUMDNE interrupt to apply
- * speed-dependent PHY tuning (e.g. TX amplitude, RX boost).
- *
- * @param high_speed  true if the link enumerated at high-speed (480 Mbps).
+ * No speed-dependent PHY tuning is required at this stage for RTL8735B;
+ * any future per-speed trimming (TX amplitude, RX boost) can be added here.
  */
-void dwc2_phy_update(bool high_speed);
-
-/**
- * @brief  Disable the USB PHY and gate SoC clocks.
- *
- * Reverses dwc2_phy_init() — de-asserts addon enables and disables
- * HP_OTG_FUNC_CLK_CTRL_REG clock bits.
- */
-void dwc2_phy_deinit(void);
-
-/**
- * @brief  Enable or disable the USB OTG interrupt in the NVIC.
- *
- * @param enable  true to enable IRQ 25, false to disable.
- */
-void dwc2_int_set(bool enable);
+TU_ATTR_ALWAYS_INLINE static inline void dwc2_phy_update(dwc2_regs_t* dwc2,
+                                                          uint8_t hs_phy_type) {
+    (void)dwc2;
+    (void)hs_phy_type;
+    /* Nothing to do for initial bring-up */
+}
 
 /* ===========================================================================
- * Section 9: Optional DMA cache management (commented out)
+ * Section 9: Optional — deinit / DMA cache management
  *
- * If DMA is used for USB transfers on a Cortex-M55 with D-cache, cache
- * maintenance is required before/after DMA operations.  Uncomment and
- * implement these if CONFIG_USB_DMA_ENABLE is set.
+ * dwc2_phy_deinit() and cache-maintenance helpers are not required by the
+ * TinyUSB 0.17.0 DWC2 port contract and are left as stubs for future use.
  *
- * void dwc2_dcache_clean(const void *addr, uint32_t size);
- * void dwc2_dcache_invalidate(void *addr, uint32_t size);
- * void dwc2_dcache_clean_invalidate(void *addr, uint32_t size);
+ * If CONFIG_USB_DMA_ENABLE is set and D-cache is active on Cortex-M55,
+ * implement the cache-maintenance wrappers and call them from the relevant
+ * dcd_dwc2.c hooks via a local patch.
  * =========================================================================*/
 
 #ifdef __cplusplus
