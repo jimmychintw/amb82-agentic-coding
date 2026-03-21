@@ -358,9 +358,6 @@ void rtl8735b_usb_irq_setup(void)
 void board_init(void)
 {
     printf("[BSP] AMB82-MINI board_init\n");
-    /* Must init USB power/PHY BEFORE tusb_init(), because TinyUSB's dcd_init()
-     * reads GSNPSID to verify the DWC2 core exists. If clock is not enabled,
-     * the register reads as 0 and the assert fails. */
     rtl8735b_usb_phy_init();
     board_usb_print_hwcfg();
 }

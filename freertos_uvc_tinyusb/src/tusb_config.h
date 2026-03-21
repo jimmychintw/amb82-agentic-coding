@@ -26,8 +26,8 @@ extern "C" {
 /* -------------------------------------------------------------------------
  * TinyUSB operating mode
  * ------------------------------------------------------------------------- */
-/* Try Full-Speed first to get enumeration working — HS PHY seems to enumerate as FS anyway */
-#define CFG_TUSB_RHPORT0_MODE       (OPT_MODE_DEVICE | OPT_MODE_FULL_SPEED)
+/* High-Speed to match Realtek's working configuration (UTMI+ 16-bit PHY) */
+#define CFG_TUSB_RHPORT0_MODE       (OPT_MODE_DEVICE | OPT_MODE_HIGH_SPEED)
 
 /* -------------------------------------------------------------------------
  * RTOS: FreeRTOS is used on AMB82-MINI

@@ -295,11 +295,9 @@ void rtl8735b_usb_phy_init(void);
 TU_ATTR_ALWAYS_INLINE static inline void dwc2_phy_init(dwc2_regs_t* dwc2,
                                                         uint8_t hs_phy_type) {
     (void)hs_phy_type;
-    rtl8735b_usb_phy_init();
-
-    /* RTL8735B only has UTMI+ HS PHY — NEVER select dedicated FS PHY.
-     * Clear PHYSEL (bit 6) regardless of what TinyUSB sets. */
-    dwc2->gusbcfg &= ~(1UL << 6);  /* PHYSEL = 0 → use UTMI+ PHY */
+    /* PHY already initialized by Realtek's _usb_init() in board_init().
+     * Only clear PHYSEL to ensure UTMI+ PHY stays selected. */
+    dwc2->gusbcfg &= ~(1UL << 6);
 }
 
 /**
@@ -311,9 +309,10 @@ TU_ATTR_ALWAYS_INLINE static inline void dwc2_phy_update(dwc2_regs_t* dwc2,
     (void)hs_phy_type;
 
     /* RTL8735B has NO dedicated FS PHY — only UTMI+ HS PHY.
-     * TinyUSB's phy_fs_init() sets GUSBCFG_PHYSEL which selects a non-existent
-     * FS transceiver, breaking D+ pull-up. Clear it here after core reset. */
+     * Clear PHYSEL and re-init PHY after core reset. */
     dwc2->gusbcfg &= ~(1UL << 6);  /* PHYSEL = bit 6, clear it */
+
+    /* Don't re-init PHY — Realtek's _usb_init() already did it properly */
 }
 
 /* ===========================================================================
