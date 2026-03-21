@@ -138,6 +138,7 @@ static void dwc_uphy_init(void)
     usb_phy_write(0xE0, 0xA1);  /* Z0_AUTO_K, Z0_ADJR */
     usb_phy_write(0xE1, 0x19);
     usb_phy_write(0xE2, 0xB9);
+    usb_phy_write(0xE3, 0xDD);  /* WAS MISSING! TX amplitude/eye from disasm */
     usb_phy_write(0xE4, 0x68);  /* SITX (device mode) */
     usb_phy_write(0xE6, 0xD1);  /* RX_BOOST (for rom_ver <= 3) */
     usb_phy_write(0xF1, 0x8C);  /* UTMI_POS_OUT (device mode) */
