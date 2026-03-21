@@ -1,0 +1,39 @@
+VL53L5CX Hand Presence Detection — Ameba Arduino AIoT Documentation v1.1 documentation
+- 
+[](../../../../index.html)
+- [AMB82-mini Arduino](../../index.html)
+- [Example Guides](../index.html)
+- [I2C](index.html)
+- VL53L5CX Hand Presence Detection
+- 
+[ Edit on GitHub](https://github.com/Ameba-AIoT/ameba-arduino-doc/blob/main/source/ameba_pro2/amb82-mini/Example_Guides/I2C/VL53L5CX sensor Hand Presence Detection.rst)
+# VL53L5CX Hand Presence Detection[](#vl53l5cx-hand-presence-detection)
+## Materials[](#materials)
+- [AMB82-mini](https://www.amebaiot.com/en/where-to-buy-link/#buy_amb82_mini) x 1
+- [SparkFun Qwiic ToF Imager - VL53L5CX](https://www.sparkfun.com/sparkfun-qwiic-tof-imager-vl53l5cx.html) x 1
+## Example[](#example)
+### Introduction[](#introduction)
+This example shows how to use the SparkFun VL53L5CX Time-of-Flight sensor in 8x8 mode to detect if hand is present.
+### Procedure[](#procedure)
+Connect the VL53L5CX to I2C_SDA and I2C_SCL of the board as shown in the diagram below.
+[](../../../../_images/image01172.png)
+Open the example in File -> Examples -> AmebaWire -> VL53L5CX -> HandPresenceDetection
+[](../../../../_images/image02167.png)
+Compile and run the example. In the Serial Monitor, you should be able to see the logs.
+When hand is detected, the log will display “Hand present”.
+[](../../../../_images/image03146.png)
+When no hand is detected, it will display “No hand present”.
+[](../../../../_images/image04102.png)
+[ Previous](VL53L5CX%20Thumb%20Detection.html)
+[Next ](VL53L5CX%20AdvancedI2C.html)
+[
+](https://github.com/search?q=topic%3Aarduino+org%3AAmeba-AIoT&type=Repositories)
+[
+](https://www.youtube.com/@amebaiot7033)
+[
+](https://www.facebook.com/groups/amebaioten)
+[
+](https://www.facebook.com/groups/AmebaIoT)
+[
+](https://space.bilibili.com/457777430)
+© Copyright 2026 Realtek Semiconductor Corp. All rights reserved.

@@ -1,0 +1,32 @@
+# This workflow runs spell_check test for Ameba Arduino SDK
+
+name: Check word spell
+on:
+  push:
+  pull_request:
+  # weekly, Monday, 12 00 AM
+  schedule:
+    - cron: '0 12 * * 1'
+
+jobs:
+  spell-check:
+    name: Run spell-check check
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        path:
+          - 'Arduino_package/hardware/cores'
+          - 'Arduino_package/hardware/libraries'
+    steps:
+    - name: Checkout repository # and submodules
+      uses: actions/checkout@v4
+#      with:
+#        submodules: recursive
+    - name: Run spell-check for multi-floders
+#      uses: codespell-project/actions-codespell@master
+      uses: codespell-project/actions-codespell@v2
+      with:
+        skip: Arduino_package/hardware/libraries/NeuralNetwork/examples/AudioClassification/AudioClassList.h,Arduino_package/hardware/libraries/USB/src/usbd_uvc_parm.c,Arduino_package/hardware/libraries/SPI/src/JPEGDEC_Libraries/jpeg.inl,Arduino_package/hardware/libraries/NeuralNetwork/src/3rdparty/stb_image.h,Arduino_package/hardware/libraries/GPIO/src/HX711.cpp,Arduino_package/hardware/libraries/GPIO/src/HX711.h
+        ignore_words_list: ameba,re-used,OIS,ois,ALS,als,AFE
+#        ignore_words_file: Ameba_misc/Spell_Check_Ignore/.codespellignore
+        path: ${{ matrix.path }}
