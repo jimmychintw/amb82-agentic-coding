@@ -373,6 +373,12 @@ void board_init_after_tusb(void)
     board_usb_print_hwcfg();
 
     /* Debug: dump key DWC2 registers to diagnose enumeration */
+    uint32_t grxfsiz  = DWC2_READ_REG32(USB_OTG_REG_BASE, 0x024);  /* GRXFSIZ */
+    uint32_t gnptxfsiz = DWC2_READ_REG32(USB_OTG_REG_BASE, 0x028); /* GNPTXFSIZ */
+    uint32_t dcfg     = DWC2_READ_REG32(USB_OTG_REG_BASE, 0x800);  /* DCFG */
+    printf("[USB DBG] GRXFSIZ=0x%08lX GNPTXFSIZ=0x%08lX DCFG=0x%08lX\n",
+           (unsigned long)grxfsiz, (unsigned long)gnptxfsiz, (unsigned long)dcfg);
+
     uint32_t gotgctl = DWC2_READ_REG32(USB_OTG_REG_BASE, 0x000);  /* GOTGCTL */
     uint32_t gahbcfg = DWC2_READ_REG32(USB_OTG_REG_BASE, 0x008);  /* GAHBCFG */
     uint32_t gusbcfg = DWC2_READ_REG32(USB_OTG_REG_BASE, 0x00C);  /* GUSBCFG */

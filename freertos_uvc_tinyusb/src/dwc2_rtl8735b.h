@@ -239,7 +239,7 @@ static const dwc2_controller_t _dwc2_controller[] = {
         .reg_base     = USB_OTG_REG_BASE,   /* 0x400C0000 */
         .irqnum       = USB_OTG_IRQ_NUM,    /* 25 */
         .ep_count     = DWC2_EP_MAX,
-        .ep_fifo_size = 4096,               /* 4 KB shared FIFO RAM */
+        .ep_fifo_size = 8928,               /* 2232 words x 4 = 8928 bytes (from GHWCFG3) */
     },
 };
 
