@@ -84,7 +84,7 @@ void tud_resume_cb(void) {
  * The function name must match EXAMPLE_NAME defined in build.sh so that
  * the Realtek SDK's example dispatch table finds it.
  */
-void example_media_uvcd_tinyusb(void) {
+void app_example(void) {
     printf("[TinyUSB] Starting AMB82 USB device...\n");
 
     // Early board init (prints GHWCFG register snapshot before stack starts)

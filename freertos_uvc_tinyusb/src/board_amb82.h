@@ -41,6 +41,15 @@ void board_init_after_tusb(void);
  */
 void board_usb_print_hwcfg(void);
 
+/**
+ * @brief Full USB power + PHY initialization.
+ *
+ * Must be called BEFORE tusb_init() — TinyUSB's dcd_init() reads GSNPSID
+ * to verify DWC2 exists, which requires USB clock to be enabled first.
+ * Implemented in board_amb82.c.
+ */
+void rtl8735b_usb_phy_init(void);
+
 #ifdef __cplusplus
 }
 #endif

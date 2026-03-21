@@ -2,26 +2,26 @@
  * @file board_amb82.c
  * @brief Board-support implementation for AMB82-MINI (RTL8735B)
  *
- * Implements the three BSP functions declared in board_amb82.h.
- *
- * Notes
- * -----
- * - The USB PHY clock/power sequence is NOT performed here.  It is instead
- *   embedded in dwc2_phy_init() (in dwc2_rtl8735b.h), which TinyUSB calls
- *   automatically during dcd_init().  This keeps the init path contained
- *   inside the DWC2 port header, consistent with other TinyUSB ports.
- *
- * - printf() calls rely on the Realtek SDK's UART console which is already
- *   initialised by the FreeRTOS startup code before any application task runs.
+ * Implements BSP functions and the USB PHY init sequence.
+ * PHY init is derived from disassembly of Realtek's libusbd.a:
+ *   dwc_otg_power_init() -> hal_sys_peripheral_en(58,1) + dwc_uphy_init()
  */
 
 #include <stdint.h>
+#include <stdio.h>
 #include "board_amb82.h"
-#include "dwc2_rtl8735b.h"   /* USB_OTG_REG_BASE, DWC2_READ_REG32 */
+#include "dwc2_rtl8735b.h"
 
 /* -------------------------------------------------------------------------
- * DWC2 hardware configuration register offsets (from GHWCFG1..4 in DWC2 spec)
- * These are at GLOBAL_BASE + 0x044 .. 0x050.
+ * SDK HAL function — enables USB OTG clock/power domain at SoC level.
+ * This handles SYSON_S_REG_SYS_OTG_CTRL (0x50000920) properly.
+ * OTG_SYS_CTRL = 58 (0x3a)
+ * ------------------------------------------------------------------------- */
+extern void hal_sys_peripheral_en(uint8_t id, uint8_t en);
+#define OTG_SYS_CTRL  58
+
+/* -------------------------------------------------------------------------
+ * DWC2 hardware configuration register offsets
  * ------------------------------------------------------------------------- */
 #define DWC2_GHWCFG1_OFFSET   0x044UL
 #define DWC2_GHWCFG2_OFFSET   0x048UL
@@ -29,15 +29,202 @@
 #define DWC2_GHWCFG4_OFFSET   0x050UL
 
 /* -------------------------------------------------------------------------
+ * PHY register read/write via addon indirect access
+ *
+ * The internal UTMI PHY uses a paged register interface accessed through
+ * the addon register block at USB_OTG_REG_BASE + 0x30000.
+ *
+ * Protocol (reverse-engineered from libusbd.a):
+ *   Write: addon[0x20] = (phy_addr_high << 4) | data_nibble_low
+ *          addon[0x24] = (phy_addr_low  << 4) | data_nibble_high
+ *   Read:  addon[0x20] = (phy_addr_high << 4) | 0x00
+ *          return addon[0x28] & 0xFF
+ *
+ * We use the simplified HAL_OTG approach: write via vendor STS registers.
+ * ------------------------------------------------------------------------- */
+#define USB_OTG_ADDON_WRITE_REG  (USB_OTG_REG_BASE + 0x30020UL)
+#define USB_OTG_ADDON_READ_DATA  (USB_OTG_REG_BASE + 0x30028UL)
+
+#define REG32(addr) (*(volatile uint32_t *)(addr))
+
+static void usb_phy_write(uint8_t addr, uint8_t data)
+{
+    uint8_t addr_high = (addr >> 4) & 0x0F;
+    uint8_t addr_low  = addr & 0x0F;
+
+    /* Write low nibble of data with high nibble of address */
+    REG32(USB_OTG_REG_BASE + 0x30020UL) = (uint32_t)((addr_high << 4) | (data & 0x0F));
+    /* Write high nibble of data with low nibble of address */
+    REG32(USB_OTG_REG_BASE + 0x30024UL) = (uint32_t)((addr_low << 4) | ((data >> 4) & 0x0F));
+
+    /* Small delay for PHY register write to complete */
+    volatile uint32_t dly = 100;
+    while (dly--) { __asm volatile ("nop"); }
+}
+
+static uint8_t usb_phy_read(uint8_t addr)
+{
+    uint8_t addr_high = (addr >> 4) & 0x0F;
+    uint8_t addr_low  = addr & 0x0F;
+
+    /* Set address for read */
+    REG32(USB_OTG_REG_BASE + 0x30020UL) = (uint32_t)((addr_high << 4) | 0x00);
+    REG32(USB_OTG_REG_BASE + 0x30024UL) = (uint32_t)((addr_low << 4) | 0x00);
+
+    volatile uint32_t dly = 100;
+    while (dly--) { __asm volatile ("nop"); }
+
+    return (uint8_t)(REG32(USB_OTG_REG_BASE + 0x30028UL) & 0xFF);
+}
+
+/* -------------------------------------------------------------------------
+ * dwc_uphy_init — USB PHY register programming
+ *
+ * Values from disassembly of libusbd.a dwc_uphy_init() @ 0x701b8a64.
+ * Device mode values are used (gOtgHostMode == 0).
+ * ------------------------------------------------------------------------- */
+static void dwc_uphy_init(void)
+{
+    uint8_t val;
+
+    printf("[USB PHY] Programming PHY registers (device mode)...\n");
+
+    /* 1. Select PAGE 0 */
+    val = usb_phy_read(0xF4);
+    usb_phy_write(0xF4, val & 0x9F);  /* Clear bits [6:5] -> PAGE 0 */
+
+    /* 2. PAGE 0 writes */
+    usb_phy_write(0xE0, 0xA1);  /* Z0_AUTO_K, Z0_ADJR */
+    usb_phy_write(0xE1, 0x19);
+    usb_phy_write(0xE2, 0xB9);
+    usb_phy_write(0xE4, 0x68);  /* SITX (device mode) */
+    usb_phy_write(0xE6, 0xD1);  /* RX_BOOST (for rom_ver <= 3) */
+    usb_phy_write(0xF1, 0x8C);  /* UTMI_POS_OUT (device mode) */
+
+    /* 3. Write F6 before switching page */
+    usb_phy_write(0xF6, 0x01);
+
+    /* 4. Switch to PAGE 2 */
+    val = usb_phy_read(0xF4);
+    usb_phy_write(0xF4, (val & 0x9F) | 0x40);  /* Set bit6 -> PAGE 2 */
+
+    /* 5. PAGE 2 write */
+    usb_phy_write(0xE7, 0x32);  /* SEND_OBJ, SENH_OBJ */
+
+    /* 6. Switch to PAGE 1 */
+    val = usb_phy_read(0xF4);
+    usb_phy_write(0xF4, (val & 0x9F) | 0x20);  /* Set bit5 -> PAGE 1 */
+
+    /* 7. PAGE 1 calibration (device mode) */
+    usb_phy_write(0xE0, 0x01);
+    usb_phy_write(0xE0, 0x05);  /* Trigger calibration */
+    usb_phy_write(0xE5, 0x0A);
+    usb_phy_write(0xE6, 0xD8);
+    usb_phy_write(0xF7, 0x40);  /* Device mode */
+
+    /* 8. Return to PAGE 0 */
+    val = usb_phy_read(0xF4);
+    usb_phy_write(0xF4, val & 0x9F);
+
+    printf("[USB PHY] PHY register programming complete\n");
+}
+
+/* -------------------------------------------------------------------------
+ * rtl8735b_usb_phy_init — full USB power + PHY init
+ *
+ * Called by TinyUSB's dcd_dwc2.c via dwc2_phy_init() before core reset.
+ * Sequence from disassembly of dwc_otg_power_init() @ 0x701b8b6c:
+ *   1. Pre-init register writes (0x40000008, 0x40009090)
+ *   2. hal_sys_peripheral_en(OTG_SYS_CTRL=58, ENABLE=1)
+ *   3. dwc_uphy_init() — program PHY registers
+ *   4. Enable addon registers (APHY, DPHY, OTG core)
+ *   5. Wait for UPLL_CKRDY
+ * ------------------------------------------------------------------------- */
+void rtl8735b_usb_phy_init(void)
+{
+    printf("[USB] Starting USB power/PHY init...\n");
+
+    /* Step 1: Pre-init register writes (from dwc_otg_power_init disasm) */
+    volatile uint32_t *reg_40000008 = (volatile uint32_t *)0x40000008UL;
+    uint32_t val = *reg_40000008;
+    val &= ~0xF0000UL;   /* Clear bits 16-19 */
+    *reg_40000008 = val;
+    val = *reg_40000008;
+    val &= ~0x0FUL;      /* Clear bits 0-3 */
+    *reg_40000008 = val;
+
+    volatile uint32_t *reg_40009090 = (volatile uint32_t *)0x40009090UL;
+    val = *reg_40009090;
+    val &= ~0x02UL;      /* Clear bit 1 */
+    *reg_40009090 = val;
+
+    /* Step 2: Enable USB OTG peripheral via SDK HAL
+     * This properly configures SYSON_S_REG_SYS_OTG_CTRL (0x50000920):
+     * - Sets OTG_EN, OTG_CLK_EN, UTMI_CLK_EN
+     * - Sets USB power bits (USBD_EN, UAHV_EN, UABG_EN, PDN33)
+     * - Clears isolation bits (ISO_USBD_EN, ISO_USBA_EN)
+     */
+    printf("[USB] Calling hal_sys_peripheral_en(OTG=%d, enable=1)...\n", OTG_SYS_CTRL);
+    hal_sys_peripheral_en(OTG_SYS_CTRL, 1);
+
+    /* Settle delay after power-up */
+    volatile uint32_t dly = 200000UL;
+    while (dly--) { __asm volatile ("nop"); }
+
+    /* Read back clock control register for debug */
+    uint32_t clk_val = REG32(HP_OTG_FUNC_CLK_CTRL_ADDR);
+    printf("[USB] HP_OTG_FUNC_CLK_CTRL = 0x%08lX\n", (unsigned long)clk_val);
+
+    /* Step 3: Program USB PHY registers */
+    dwc_uphy_init();
+
+    /* Step 4: Enable addon register — PHY and OTG core */
+    volatile uint32_t *addon_ctrl =
+        (volatile uint32_t *)(USB_OTG_REG_BASE + USB_OTG_ADDON_REG_CTRL);
+
+    uint32_t addon = *addon_ctrl;
+    printf("[USB] Addon reg before = 0x%08lX\n", (unsigned long)addon);
+
+    addon |= (USB_OTG_ADDON_USB_APHY_EN |    /* bit 14 */
+              USB_OTG_ADDON_USB_DPHY_FEN |    /* bit 9  */
+              USB_OTG_ADDON_USB_OTG_RST);     /* bit 8  */
+    *addon_ctrl = addon;
+
+    /* Step 5: Wait for PHY PLL lock (UPLL_CKRDY, bit 5) */
+    uint32_t timeout = 500000UL;
+    while (!(*addon_ctrl & USB_OTG_ADDON_UPLL_CKRDY) && --timeout) {
+        __asm volatile ("nop");
+    }
+
+    addon = *addon_ctrl;
+    printf("[USB] Addon reg after = 0x%08lX (UPLL_CKRDY=%s)\n",
+           (unsigned long)addon,
+           (addon & USB_OTG_ADDON_UPLL_CKRDY) ? "YES" : "NO");
+
+    if (!(addon & USB_OTG_ADDON_UPLL_CKRDY)) {
+        printf("[USB] ERROR: PHY PLL did not lock!\n");
+    } else {
+        printf("[USB] PHY PLL locked OK\n");
+    }
+
+    /* Verify GHWCFG registers are now readable */
+    uint32_t gsnpsid = DWC2_READ_REG32(USB_OTG_REG_BASE, 0x040UL);
+    printf("[USB] GSNPSID = 0x%08lX (expect 0x4F54xxxx for DWC2)\n",
+           (unsigned long)gsnpsid);
+
+    printf("[USB] USB power/PHY init complete\n");
+}
+
+/* -------------------------------------------------------------------------
  * board_init
  * ------------------------------------------------------------------------- */
 void board_init(void)
 {
-    printf("[BSP] AMB82-MINI board_init: USB OTG reg base = 0x%08lX\n",
-           (unsigned long)USB_OTG_REG_BASE);
-    printf("[BSP] USB IRQ number = %d\n", USB_OTG_IRQ_NUM);
-
-    /* Print USB hardware config for diagnostic purposes */
+    printf("[BSP] AMB82-MINI board_init\n");
+    /* Must init USB power/PHY BEFORE tusb_init(), because TinyUSB's dcd_init()
+     * reads GSNPSID to verify the DWC2 core exists. If clock is not enabled,
+     * the register reads as 0 and the assert fails. */
+    rtl8735b_usb_phy_init();
     board_usb_print_hwcfg();
 }
 
@@ -46,9 +233,8 @@ void board_init(void)
  * ------------------------------------------------------------------------- */
 void board_init_after_tusb(void)
 {
-    /* Placeholder — nothing required for initial CDC bring-up.
-     * Future uses: enable VBUS power switch, start LED blink task, etc. */
     printf("[BSP] board_init_after_tusb: USB stack is up\n");
+    board_usb_print_hwcfg();
 }
 
 /* -------------------------------------------------------------------------
@@ -61,22 +247,15 @@ void board_usb_print_hwcfg(void)
     uint32_t cfg3 = DWC2_READ_REG32(USB_OTG_REG_BASE, DWC2_GHWCFG3_OFFSET);
     uint32_t cfg4 = DWC2_READ_REG32(USB_OTG_REG_BASE, DWC2_GHWCFG4_OFFSET);
 
-    printf("[BSP] USB DWC2 HW Config Registers:\n");
-    printf("[BSP]   GHWCFG1 = 0x%08lX  (endpoint direction bitmap)\n",
-           (unsigned long)cfg1);
-    printf("[BSP]   GHWCFG2 = 0x%08lX  (OTG mode, arch, endpoints, FIFO)\n",
-           (unsigned long)cfg2);
-    printf("[BSP]   GHWCFG3 = 0x%08lX  (DFIFO depth, packet counts)\n",
-           (unsigned long)cfg3);
-    printf("[BSP]   GHWCFG4 = 0x%08lX  (IN endpoint count, power opt, phy)\n",
-           (unsigned long)cfg4);
+    printf("[BSP] GHWCFG1=0x%08lX GHWCFG2=0x%08lX GHWCFG3=0x%08lX GHWCFG4=0x%08lX\n",
+           (unsigned long)cfg1, (unsigned long)cfg2,
+           (unsigned long)cfg3, (unsigned long)cfg4);
 
-    /* Decode a few key fields for convenience */
-    uint32_t num_eps       = ((cfg2 >> 10) & 0xFU) + 1U; /* GHWCFG2[13:10] */
-    uint32_t dfifo_depth   = (cfg3 >> 16) & 0xFFFFU;      /* GHWCFG3[31:16], in 32-bit words */
-    uint32_t num_in_eps    = (cfg4 >> 26) & 0xFU;          /* GHWCFG4[29:26] */
+    uint32_t num_eps     = ((cfg2 >> 10) & 0xFU) + 1U;
+    uint32_t dfifo_depth = (cfg3 >> 16) & 0xFFFFU;
+    uint32_t num_in_eps  = (cfg4 >> 26) & 0xFU;
 
-    printf("[BSP]   Decoded: num_eps=%lu  dfifo_depth=%lu words (%lu bytes)  num_in_eps=%lu\n",
+    printf("[BSP] Decoded: eps=%lu  dfifo=%lu words (%lu bytes)  in_eps=%lu\n",
            (unsigned long)num_eps,
            (unsigned long)dfifo_depth,
            (unsigned long)(dfifo_depth * 4UL),

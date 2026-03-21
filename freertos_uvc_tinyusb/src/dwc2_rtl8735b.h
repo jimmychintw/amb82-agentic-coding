@@ -208,6 +208,21 @@ extern "C" {
  * used as a template.
  * =========================================================================*/
 
+/* ===========================================================================
+ * Section 7: Register access convenience macros
+ *
+ * Available to ALL compilation units (not just TinyUSB).
+ * Used by board_amb82.c for GHWCFG register reads.
+ * =========================================================================*/
+
+/** Read a 32-bit register at (base + offset) */
+#define DWC2_READ_REG32(base, offset) \
+    (*(volatile uint32_t *)((uint32_t)(base) + (uint32_t)(offset)))
+
+/** Write a 32-bit register at (base + offset) */
+#define DWC2_WRITE_REG32(base, offset, value) \
+    (*(volatile uint32_t *)((uint32_t)(base) + (uint32_t)(offset)) = (uint32_t)(value))
+
 /* Only provide TinyUSB port functions when compiling within the TinyUSB driver
  * context.  dcd_dwc2.c includes dwc2_type.h (which defines _TUSB_DWC2_TYPES_H_)
  * before including this header, so dwc2_controller_t, dwc2_regs_t, and TU_*
@@ -227,23 +242,6 @@ static const dwc2_controller_t _dwc2_controller[] = {
         .ep_fifo_size = 4096,               /* 4 KB shared FIFO RAM */
     },
 };
-
-/* ===========================================================================
- * Section 7: Register access convenience macros
- *
- * The Realtek HAL uses HAL_OTG_READ32 / HAL_OTG_WRITE32 which go through
- * an indirect path.  For TinyUSB we use direct MMIO dereference, consistent
- * with how every other DWC2 port works.  These macros mirror the Realtek
- * naming for documentation purposes and can be used in the BSP glue code.
- * =========================================================================*/
-
-/** Read a 32-bit register at (base + offset) */
-#define DWC2_READ_REG32(base, offset) \
-    (*(volatile uint32_t *)((uint32_t)(base) + (uint32_t)(offset)))
-
-/** Write a 32-bit register at (base + offset) */
-#define DWC2_WRITE_REG32(base, offset, value) \
-    (*(volatile uint32_t *)((uint32_t)(base) + (uint32_t)(offset)) = (uint32_t)(value))
 
 /* ===========================================================================
  * Section 8: TinyUSB DWC2 port — required inline functions
@@ -288,70 +286,25 @@ TU_ATTR_ALWAYS_INLINE static inline void dwc2_remote_wakeup_delay(void) {
 
 /**
  * MCU-specific PHY initialisation — called BEFORE the DWC2 core reset.
- *
- * Sequence (derived from Realtek SDK usb_chip_init / usb_hal_board_init):
- *  1. Enable SoC functional clocks via HP_OTG_FUNC_CLK_CTRL_REG.
- *  2. Clear power-down bits and assert power/BG enables.
- *  3. Assert addon-register enables: APHY_EN, DPHY_FEN, OTG_RST.
- *  4. Busy-wait for UPLL_CKRDY to assert (PHY PLL locked).
- *
- * The dwc2 / hs_phy_type parameters are provided by TinyUSB; for RTL8735B
- * the internal FS-only PHY is always used and hs_phy_type is ignored.
+ * Implemented in board_amb82.c (too complex for static inline).
  */
+void rtl8735b_usb_phy_init(void);
+
 TU_ATTR_ALWAYS_INLINE static inline void dwc2_phy_init(dwc2_regs_t* dwc2,
                                                         uint8_t hs_phy_type) {
     (void)dwc2;
     (void)hs_phy_type;
-
-    /* --- Step 1: SoC clock / power enable (HP_OTG_FUNC_CLK_CTRL) --- */
-    volatile uint32_t *clk_ctrl = (volatile uint32_t *)HP_OTG_FUNC_CLK_CTRL_ADDR;
-    uint32_t val = *clk_ctrl;
-
-    /* Clear power-down and isolation bits, then set enable bits */
-    val &= ~(HP_OTG_CLK_PDN | HP_OTG_CLK_DISO_EN | HP_OTG_CLK_AISO_EN);
-    val |= (HP_OTG_CLK_OTG_EN     |
-            HP_OTG_CLK_OTG_CLK_EN |
-            HP_OTG_CLK_UTMI_CLK_EN|
-            HP_OTG_CLK_BG_EN      |
-            HP_OTG_CLK_ANA_HV_EN  |
-            HP_OTG_CLK_DIGI_PC_EN |
-            HP_OTG_CLK_IBX_USB_EN);
-    *clk_ctrl = val;
-
-    /* Short settle delay (>= 200 µs per datasheet) */
-    volatile uint32_t dly = 100000UL;
-    while (dly--) { __asm volatile ("nop"); }
-
-    /* --- Step 2: Addon register — enable PHY and OTG core --- */
-    volatile uint32_t *addon_ctrl =
-        (volatile uint32_t *)(USB_OTG_REG_BASE + USB_OTG_ADDON_REG_CTRL);
-
-    uint32_t addon = *addon_ctrl;
-    addon |= (USB_OTG_ADDON_USB_APHY_EN |
-              USB_OTG_ADDON_USB_DPHY_FEN |
-              USB_OTG_ADDON_USB_OTG_RST);
-    *addon_ctrl = addon;
-
-    /* --- Step 3: Wait for PHY PLL to lock (UPLL_CKRDY) --- */
-    uint32_t timeout = 200000UL;
-    while (!(*addon_ctrl & USB_OTG_ADDON_UPLL_CKRDY) && --timeout) {
-        __asm volatile ("nop");
-    }
-    /* Timeout is non-fatal here; TinyUSB will detect a core that never
-     * responds and the higher-level init will fail gracefully. */
+    rtl8735b_usb_phy_init();
 }
 
 /**
  * MCU-specific PHY update — called AFTER the DWC2 core reset.
- *
- * No speed-dependent PHY tuning is required at this stage for RTL8735B;
- * any future per-speed trimming (TX amplitude, RX boost) can be added here.
+ * Can add speed-dependent PHY tuning here later.
  */
 TU_ATTR_ALWAYS_INLINE static inline void dwc2_phy_update(dwc2_regs_t* dwc2,
                                                           uint8_t hs_phy_type) {
     (void)dwc2;
     (void)hs_phy_type;
-    /* Nothing to do for initial bring-up */
 }
 
 /* ===========================================================================
