@@ -26,8 +26,8 @@ extern "C" {
 /* -------------------------------------------------------------------------
  * TinyUSB operating mode
  * ------------------------------------------------------------------------- */
-/* Start with Full-Speed for bring-up — switch to HS after enumeration works */
-#define CFG_TUSB_RHPORT0_MODE       (OPT_MODE_DEVICE | OPT_MODE_FULL_SPEED)
+/* High-Speed — the AMB82 PHY is designed for HS (old firmware uses HS successfully) */
+#define CFG_TUSB_RHPORT0_MODE       (OPT_MODE_DEVICE | OPT_MODE_HIGH_SPEED)
 
 /* -------------------------------------------------------------------------
  * RTOS: FreeRTOS is used on AMB82-MINI

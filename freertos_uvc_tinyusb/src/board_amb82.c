@@ -49,34 +49,73 @@ extern void hal_sys_peripheral_en(uint8_t id, uint8_t en);
 
 #define REG32(addr) (*(volatile uint32_t *)(addr))
 
+/*
+ * PHY register access via GPVNDCTL (offset 0x34 from USB_OTG_REG_BASE)
+ * and addon VND_STS_OUT (offset 0x3001C from USB_OTG_REG_BASE).
+ *
+ * Protocol reverse-engineered from DWCWritePhyReg / DWCReadPhyReg disassembly:
+ *   GPVNDCTL command format:
+ *     bits [11:8]  = addr nibble (high or low, shifted)
+ *     bit  25      = NewReq
+ *     bits [27:24] = 0xA for write, 0x4 for read
+ *     bit  27      = VStsDone (poll until set after write, clear before start)
+ */
+#define GPVNDCTL         (USB_OTG_REG_BASE + 0x034UL)
+#define ADDON_VND_STS    (USB_OTG_REG_BASE + 0x3001CUL)
+#define GPVNDCTL_BUSY    (1UL << 27)
+#define GPVNDCTL_WRITE   0x0A300000UL  /* write command: bits[27:24]=A, bit25=NewReq */
+#define GPVNDCTL_READ    0x04300000UL  /* read command:  bits[27:24]=4, bit25=NewReq */
+
 static void usb_phy_write(uint8_t addr, uint8_t data)
 {
-    uint8_t addr_high = (addr >> 4) & 0x0F;
-    uint8_t addr_low  = addr & 0x0F;
+    volatile uint32_t timeout;
 
-    /* Write low nibble of data with high nibble of address */
-    REG32(USB_OTG_REG_BASE + 0x30020UL) = (uint32_t)((addr_high << 4) | (data & 0x0F));
-    /* Write high nibble of data with low nibble of address */
-    REG32(USB_OTG_REG_BASE + 0x30024UL) = (uint32_t)((addr_low << 4) | ((data >> 4) & 0x0F));
+    /* Wait for GPVNDCTL not busy (bit 27 clear) */
+    timeout = 10000;
+    while ((REG32(GPVNDCTL) & GPVNDCTL_BUSY) && --timeout) {}
 
-    /* Small delay for PHY register write to complete */
-    volatile uint32_t dly = 100;
-    while (dly--) { __asm volatile ("nop"); }
+    /* Write data byte to addon VND_STS_OUT register */
+    REG32(ADDON_VND_STS) = (uint32_t)data;
+
+    /* Write high nibble of addr as command */
+    uint32_t addr_high = ((uint32_t)(addr) << 8) & 0xF00UL;
+    REG32(GPVNDCTL) = addr_high | GPVNDCTL_WRITE;
+
+    /* Wait for done (bit 27 set) */
+    timeout = 10000;
+    while (!(REG32(GPVNDCTL) & GPVNDCTL_BUSY) && --timeout) {}
+
+    /* Write low nibble of addr as command */
+    uint32_t addr_low = ((uint32_t)(addr) << 4) & 0xF00UL;
+    REG32(GPVNDCTL) = addr_low | GPVNDCTL_WRITE;
+
+    /* Wait for done */
+    timeout = 10000;
+    while (!(REG32(GPVNDCTL) & GPVNDCTL_BUSY) && --timeout) {}
 }
 
 static uint8_t usb_phy_read(uint8_t addr)
 {
-    uint8_t addr_high = (addr >> 4) & 0x0F;
-    uint8_t addr_low  = addr & 0x0F;
+    volatile uint32_t timeout;
 
-    /* Set address for read */
-    REG32(USB_OTG_REG_BASE + 0x30020UL) = (uint32_t)((addr_high << 4) | 0x00);
-    REG32(USB_OTG_REG_BASE + 0x30024UL) = (uint32_t)((addr_low << 4) | 0x00);
+    /* Wait not busy */
+    timeout = 10000;
+    while ((REG32(GPVNDCTL) & GPVNDCTL_BUSY) && --timeout) {}
 
-    volatile uint32_t dly = 100;
-    while (dly--) { __asm volatile ("nop"); }
+    /* Read high nibble */
+    uint32_t addr_high = ((uint32_t)(addr) << 8) & 0xF00UL;
+    REG32(GPVNDCTL) = addr_high | GPVNDCTL_READ;
+    timeout = 10000;
+    while (!(REG32(GPVNDCTL) & GPVNDCTL_BUSY) && --timeout) {}
 
-    return (uint8_t)(REG32(USB_OTG_REG_BASE + 0x30028UL) & 0xFF);
+    /* Read low nibble */
+    uint32_t addr_low = ((uint32_t)(addr) << 4) & 0xF00UL;
+    REG32(GPVNDCTL) = addr_low | GPVNDCTL_READ;
+    timeout = 10000;
+    while (!(REG32(GPVNDCTL) & GPVNDCTL_BUSY) && --timeout) {}
+
+    /* Read result from GPVNDCTL data field (bits [7:0]) or addon register */
+    return (uint8_t)(REG32(GPVNDCTL) & 0xFFUL);
 }
 
 /* -------------------------------------------------------------------------
@@ -214,6 +253,19 @@ void rtl8735b_usb_phy_init(void)
     printf("[USB] GSNPSID = 0x%08lX (expect 0x4F54xxxx for DWC2)\n",
            (unsigned long)gsnpsid);
 
+    /* Force B-session valid — needed for device mode when VBUS sensing is
+     * not wired or not reliable. Without this, the DWC2 won't pull up D+.
+     * GOTGCTL register at offset 0x000:
+     *   bit 19: BValidOvEn  = 1 (enable B-valid override)
+     *   bit 18: BValidOvVal = 1 (force B-session valid)
+     *   bit 6:  SesReqScs   = 1 (session request success)
+     */
+    volatile uint32_t *gotgctl = (volatile uint32_t *)(USB_OTG_REG_BASE + 0x000UL);
+    uint32_t gotg = *gotgctl;
+    gotg |= (1UL << 19) | (1UL << 18);  /* BValidOvEn + BValidOvVal */
+    *gotgctl = gotg;
+    printf("[USB] GOTGCTL = 0x%08lX (forced B-session valid)\n", (unsigned long)*gotgctl);
+
     printf("[USB] USB power/PHY init complete\n");
 }
 
@@ -236,24 +288,57 @@ static uint32_t usb_otg_irq_handler(void *data)
 
 static uint8_t usb_irq_registered = 0;
 
+/* Direct NVIC register access (bypasses SDK HAL which may not work for USB) */
+#define NVIC_ISER  ((volatile uint32_t *)0xE000E100UL)
+#define NVIC_ICER  ((volatile uint32_t *)0xE000E180UL)
+#define NVIC_IPR   ((volatile uint8_t  *)0xE000E400UL)
+
 void rtl8735b_usb_irq_disable(void)
 {
-    hal_irq_disable((int32_t)USB_OTG_IRQ_NUM);
+    NVIC_ICER[USB_OTG_IRQ_NUM / 32] = (1UL << (USB_OTG_IRQ_NUM % 32));
 }
 
 void rtl8735b_usb_irq_setup(void)
 {
     if (usb_irq_registered) {
-        hal_irq_enable((int32_t)USB_OTG_IRQ_NUM);
+        NVIC_ISER[USB_OTG_IRQ_NUM / 32] = (1UL << (USB_OTG_IRQ_NUM % 32));
         return;
     }
 
     printf("[USB] Registering USB IRQ handler (IRQ %d)...\n", USB_OTG_IRQ_NUM);
+
+    /* Register handler in SDK's vector dispatch table via HAL */
     hal_irq_set_vector((int32_t)USB_OTG_IRQ_NUM, (uint32_t)usb_otg_irq_handler);
-    hal_irq_set_priority((int32_t)USB_OTG_IRQ_NUM, 6);  /* Lower priority than FreeRTOS syscall */
+    hal_irq_set_priority((int32_t)USB_OTG_IRQ_NUM, 6);
+
+    /* Enable via BOTH SDK HAL and direct NVIC (belt and suspenders) */
     hal_irq_enable((int32_t)USB_OTG_IRQ_NUM);
+    NVIC_ISER[USB_OTG_IRQ_NUM / 32] = (1UL << (USB_OTG_IRQ_NUM % 32));
+
     usb_irq_registered = 1;
-    printf("[USB] USB IRQ handler registered OK\n");
+
+    /* Verify: read NVIC ISER + read back the vector from SDK */
+    uint32_t iser_val = NVIC_ISER[0];
+    uint32_t vector = hal_irq_get_vector((int32_t)USB_OTG_IRQ_NUM);
+    printf("[USB] NVIC ISER[0]=0x%08lX (bit25=%lu)\n",
+           (unsigned long)iser_val, (unsigned long)((iser_val >> 25) & 1));
+    printf("[USB] Vector for IRQ25=0x%08lX (expect 0x%08lX)\n",
+           (unsigned long)vector, (unsigned long)(uint32_t)usb_otg_irq_handler);
+
+    /* Also check: is the interrupt actually pending? */
+    volatile uint32_t *nvic_ispr = (volatile uint32_t *)0xE000E200UL;
+    printf("[USB] NVIC ISPR[0]=0x%08lX (pending bit25=%lu)\n",
+           (unsigned long)nvic_ispr[0], (unsigned long)((nvic_ispr[0] >> 25) & 1));
+
+    /* Force-pend the interrupt to test if handler works */
+    volatile uint32_t *nvic_stir = (volatile uint32_t *)0xE000EF00UL;
+    printf("[USB] Force-pending IRQ 25 via STIR...\n");
+    *nvic_stir = USB_OTG_IRQ_NUM;
+
+    /* Small delay to let ISR run */
+    volatile uint32_t dly = 100000;
+    while (dly--) { __asm volatile ("nop"); }
+    printf("[USB] After STIR: irq_count=%lu\n", (unsigned long)usb_irq_count);
 }
 
 /* -------------------------------------------------------------------------
@@ -275,6 +360,16 @@ void board_init(void)
 void board_init_after_tusb(void)
 {
     printf("[BSP] board_init_after_tusb: USB stack is up\n");
+
+    /* Re-force B-session valid — TinyUSB's dcd_init() clears our earlier setting */
+    {
+        volatile uint32_t *p_gotgctl = (volatile uint32_t *)(USB_OTG_REG_BASE + 0x000UL);
+        uint32_t g = *p_gotgctl;
+        g |= (1UL << 19) | (1UL << 18);  /* BValidOvEn + BValidOvVal */
+        *p_gotgctl = g;
+        printf("[BSP] GOTGCTL forced B-valid = 0x%08lX\n", (unsigned long)*p_gotgctl);
+    }
+
     board_usb_print_hwcfg();
 
     /* Debug: dump key DWC2 registers to diagnose enumeration */
