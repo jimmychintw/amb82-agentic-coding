@@ -208,7 +208,12 @@ extern "C" {
  * used as a template.
  * =========================================================================*/
 
-#include "portable/synopsys/dwc2/dwc2_type.h"
+/* Only provide TinyUSB port functions when compiling within the TinyUSB driver
+ * context.  dcd_dwc2.c includes dwc2_type.h (which defines _TUSB_DWC2_TYPES_H_)
+ * before including this header, so dwc2_controller_t, dwc2_regs_t, and TU_*
+ * macros are all available.  board_amb82.c and other non-TinyUSB files skip
+ * this entire section since they don't have the TinyUSB include chain. */
+#ifdef _TUSB_DWC2_TYPES_H_
 
 /** Conservative endpoint count — will be confirmed from GHWCFG2 at runtime */
 #define DWC2_EP_MAX   6
@@ -253,7 +258,10 @@ static const dwc2_controller_t _dwc2_controller[] = {
  */
 TU_ATTR_ALWAYS_INLINE static inline void dwc2_dcd_int_enable(uint8_t rhport) {
     (void)rhport;
-    NVIC_EnableIRQ((IRQn_Type)USB_OTG_IRQ_NUM);
+    /* Direct NVIC ISER access — avoids dependency on CMSIS headers.
+     * IRQ 25: ISER[0] bit 25 (IRQs 0-31 are in ISER[0]) */
+    volatile uint32_t *nvic_iser = (volatile uint32_t *)0xE000E100UL;
+    nvic_iser[0] |= (1UL << USB_OTG_IRQ_NUM);
 }
 
 /**
@@ -262,7 +270,9 @@ TU_ATTR_ALWAYS_INLINE static inline void dwc2_dcd_int_enable(uint8_t rhport) {
  */
 TU_ATTR_ALWAYS_INLINE static inline void dwc2_dcd_int_disable(uint8_t rhport) {
     (void)rhport;
-    NVIC_DisableIRQ((IRQn_Type)USB_OTG_IRQ_NUM);
+    /* Direct NVIC ICER access — IRQ 25 in ICER[0] bit 25 */
+    volatile uint32_t *nvic_icer = (volatile uint32_t *)0xE000E180UL;
+    nvic_icer[0] = (1UL << USB_OTG_IRQ_NUM);  /* Write 1 to clear/disable */
 }
 
 /**
@@ -354,6 +364,8 @@ TU_ATTR_ALWAYS_INLINE static inline void dwc2_phy_update(dwc2_regs_t* dwc2,
  * implement the cache-maintenance wrappers and call them from the relevant
  * dcd_dwc2.c hooks via a local patch.
  * =========================================================================*/
+
+#endif /* _TUSB_DWC2_TYPES_H_ — end of TinyUSB-specific section */
 
 #ifdef __cplusplus
 }

@@ -1,7 +1,10 @@
 # TinyUSB root path (relative to this cmake file's directory)
 # NOTE: Run `git submodule add https://github.com/hathach/tinyusb.git lib/tinyusb`
 #       inside freertos_uvc_tinyusb/ to populate this directory.
-set(TINYUSB_ROOT ${CMAKE_CURRENT_LIST_DIR}/../lib/tinyusb)
+# Resolve the real path of this cmake file (not the symlink) to find TinyUSB
+get_filename_component(_REAL_DIR "${CMAKE_CURRENT_LIST_FILE}" REALPATH)
+get_filename_component(_REAL_DIR "${_REAL_DIR}" DIRECTORY)
+set(TINYUSB_ROOT ${_REAL_DIR}/../lib/tinyusb)
 
 # NOTE: Do NOT link libusbd.a from the Realtek SDK — it conflicts with TinyUSB
 #       symbols (usbd_init, usbd_ep_write, etc.). Exclude it in the top-level
@@ -39,9 +42,8 @@ list(
 	${TINYUSB_ROOT}/src/device/usbd.c
 	${TINYUSB_ROOT}/src/device/usbd_control.c
 	${TINYUSB_ROOT}/src/portable/synopsys/dwc2/dcd_dwc2.c
-	${TINYUSB_ROOT}/src/portable/synopsys/dwc2/dwc2_common.c
 	${TINYUSB_ROOT}/src/class/cdc/cdc_device.c
 )
 # Prepend CMAKE_CURRENT_LIST_DIR to local source files (app_*.c and board_*.c).
 # TinyUSB sources already use absolute paths via ${TINYUSB_ROOT}.
-list(TRANSFORM app_example_sources PREPEND ${CMAKE_CURRENT_LIST_DIR}/ REGEX "^(app_|board_)")
+list(TRANSFORM app_example_sources PREPEND ${CMAKE_CURRENT_LIST_DIR}/ REGEX "^(app_|board_|usb_)")

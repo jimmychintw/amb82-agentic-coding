@@ -10,6 +10,17 @@ SDK_ROOT="${SCRIPT_DIR}/../amb82_Info/ameba-rtos-pro2"
 GCC_RELEASE="${SDK_ROOT}/project/realtek_amebapro2_v0_example/GCC-RELEASE"
 BUILD_DIR="${GCC_RELEASE}/build"
 
+# Use Realtek ASDK-10.3.0 toolchain (required by SDK, newer GCC versions cause build errors)
+REALTEK_TOOLCHAIN="$HOME/Library/Arduino15/packages/realtek/tools/ameba_pro2_toolchain/1.0.1-p1/bin"
+if [ -d "$REALTEK_TOOLCHAIN" ]; then
+    export PATH="$REALTEK_TOOLCHAIN:$PATH"
+    echo "  Toolchain: $(arm-none-eabi-gcc --version | head -1)"
+else
+    echo "WARNING: Realtek toolchain not found at $REALTEK_TOOLCHAIN"
+    echo "         Using system arm-none-eabi-gcc: $(arm-none-eabi-gcc --version | head -1)"
+    echo "         SDK requires GCC 10.3.0 — build may fail with newer versions"
+fi
+
 # Symlink our example into SDK's component/example/
 EXAMPLE_NAME="media_uvcd_tinyusb"
 EXAMPLE_LINK="${SDK_ROOT}/component/example/${EXAMPLE_NAME}"

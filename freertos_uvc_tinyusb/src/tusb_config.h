@@ -21,6 +21,7 @@ extern "C" {
  * ------------------------------------------------------------------------- */
 #define TUP_USBIP_DWC2              1
 #define TUP_USBIP_DWC2_RTL8735B    1
+#define TUP_DCD_ENDPOINT_MAX        6   /* Conservative; verify from GHWCFG2 */
 
 /* -------------------------------------------------------------------------
  * TinyUSB operating mode
