@@ -252,12 +252,59 @@ static void uvc_cam_init(void)
 /*============================================================================
  * FreeRTOS Task Entry
  *============================================================================*/
+static void dump_dwc2_regs_old(void)
+{
+    #define USB_BASE 0x400C0000UL
+    #define RD(off) (*(volatile unsigned int *)(USB_BASE + (off)))
+    printf("\n=== DWC2 REALTEK REG DUMP ===\n");
+    printf("GOTGCTL  = 0x%08X\n", RD(0x000));
+    printf("GOTGINT  = 0x%08X\n", RD(0x004));
+    printf("GAHBCFG  = 0x%08X\n", RD(0x008));
+    printf("GUSBCFG  = 0x%08X\n", RD(0x00C));
+    printf("GRSTCTL  = 0x%08X\n", RD(0x010));
+    printf("GINTSTS  = 0x%08X\n", RD(0x014));
+    printf("GINTMSK  = 0x%08X\n", RD(0x018));
+    printf("GRXFSIZ  = 0x%08X\n", RD(0x024));
+    printf("GNPTXFSIZ= 0x%08X\n", RD(0x028));
+    printf("GSNPSID  = 0x%08X\n", RD(0x040));
+    printf("GHWCFG1  = 0x%08X\n", RD(0x044));
+    printf("GHWCFG2  = 0x%08X\n", RD(0x048));
+    printf("GHWCFG3  = 0x%08X\n", RD(0x04C));
+    printf("GHWCFG4  = 0x%08X\n", RD(0x050));
+    printf("DCFG     = 0x%08X\n", RD(0x800));
+    printf("DCTL     = 0x%08X\n", RD(0x804));
+    printf("DSTS     = 0x%08X\n", RD(0x808));
+    printf("DIEPMSK  = 0x%08X\n", RD(0x810));
+    printf("DOEPMSK  = 0x%08X\n", RD(0x814));
+    printf("DAINT    = 0x%08X\n", RD(0x818));
+    printf("DAINTMSK = 0x%08X\n", RD(0x81C));
+    printf("DIEPTXF0 = 0x%08X\n", RD(0x028));
+    printf("DIEPTXF1 = 0x%08X\n", RD(0x104));
+    printf("DIEPTXF2 = 0x%08X\n", RD(0x108));
+    printf("DOEPCTL0 = 0x%08X\n", RD(0xB00));
+    printf("DOEPTSIZ0= 0x%08X\n", RD(0xB10));
+    printf("DOEPCTL1 = 0x%08X\n", RD(0xB20));
+    printf("DIEPCTL0 = 0x%08X\n", RD(0x900));
+    printf("DIEPCTL1 = 0x%08X\n", RD(0x920));
+    printf("PCGCCTL  = 0x%08X\n", RD(0xE00));
+    printf("ADDON    = 0x%08X\n", RD(0x30004));
+    printf("GPVNDCTL = 0x%08X\n", RD(0x034));
+    printf("=== END REALTEK DUMP ===\n\n");
+    #undef RD
+    #undef USB_BASE
+}
+
 static void uvc_cam_main_task(void *param)
 {
 #if defined(configENABLE_TRUSTZONE) && (configENABLE_TRUSTZONE == 1) && defined(CONFIG_PLATFORM_8735B)
     rtw_create_secure_context(configMINIMAL_SECURE_STACK_SIZE);
 #endif
     uvc_cam_init();
+
+    /* Dump DWC2 registers AFTER Realtek's full USB init */
+    vTaskDelay(pdMS_TO_TICKS(3000));  /* Wait 3s for USB enumeration to complete */
+    dump_dwc2_regs_old();
+
     vTaskDelete(NULL);
 }
 
