@@ -39,9 +39,19 @@ static void usb_device_task(void *param) {
 
     printf("[TinyUSB] Device task running\n");
 
+    extern volatile uint32_t usb_irq_count;
+    uint32_t last_print = 0;
+
     while (1) {
         // Process all pending USB events (non-blocking)
         tud_task();
+
+        // Print IRQ count every 5 seconds for debug
+        if (usb_irq_count != last_print) {
+            printf("[USB IRQ] count=%lu mounted=%d\n",
+                   (unsigned long)usb_irq_count, tud_mounted());
+            last_print = usb_irq_count;
+        }
 
         // CDC echo: read whatever the host sent and echo it back
         if (tud_cdc_available()) {

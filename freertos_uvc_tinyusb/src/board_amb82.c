@@ -223,9 +223,15 @@ void rtl8735b_usb_phy_init(void)
 /* TinyUSB interrupt handler */
 extern void dcd_int_handler(uint8_t rhport);
 
-static void usb_otg_irq_handler(void)
+volatile uint32_t usb_irq_count = 0;
+
+/* Realtek SDK IRQ handler signature: u32 handler(void *data) */
+static uint32_t usb_otg_irq_handler(void *data)
 {
+    (void)data;
+    usb_irq_count++;
     dcd_int_handler(0);
+    return 0;
 }
 
 static uint8_t usb_irq_registered = 0;
@@ -270,6 +276,24 @@ void board_init_after_tusb(void)
 {
     printf("[BSP] board_init_after_tusb: USB stack is up\n");
     board_usb_print_hwcfg();
+
+    /* Debug: dump key DWC2 registers to diagnose enumeration */
+    uint32_t gotgctl = DWC2_READ_REG32(USB_OTG_REG_BASE, 0x000);  /* GOTGCTL */
+    uint32_t gahbcfg = DWC2_READ_REG32(USB_OTG_REG_BASE, 0x008);  /* GAHBCFG */
+    uint32_t gusbcfg = DWC2_READ_REG32(USB_OTG_REG_BASE, 0x00C);  /* GUSBCFG */
+    uint32_t gintsts = DWC2_READ_REG32(USB_OTG_REG_BASE, 0x014);  /* GINTSTS */
+    uint32_t gintmsk = DWC2_READ_REG32(USB_OTG_REG_BASE, 0x018);  /* GINTMSK */
+    uint32_t dctl    = DWC2_READ_REG32(USB_OTG_REG_BASE, 0x804);  /* DCTL */
+    uint32_t dsts    = DWC2_READ_REG32(USB_OTG_REG_BASE, 0x808);  /* DSTS */
+
+    printf("[USB DBG] GOTGCTL=0x%08lX GAHBCFG=0x%08lX GUSBCFG=0x%08lX\n",
+           (unsigned long)gotgctl, (unsigned long)gahbcfg, (unsigned long)gusbcfg);
+    printf("[USB DBG] GINTSTS=0x%08lX GINTMSK=0x%08lX\n",
+           (unsigned long)gintsts, (unsigned long)gintmsk);
+    printf("[USB DBG] DCTL=0x%08lX DSTS=0x%08lX\n",
+           (unsigned long)dctl, (unsigned long)dsts);
+    printf("[USB DBG] DCTL.SftDiscon(bit1)=%lu  GUSBCFG.ForceDevMode(bit30)=%lu\n",
+           (unsigned long)((dctl >> 1) & 1), (unsigned long)((gusbcfg >> 30) & 1));
 }
 
 /* -------------------------------------------------------------------------

@@ -26,7 +26,8 @@ extern "C" {
 /* -------------------------------------------------------------------------
  * TinyUSB operating mode
  * ------------------------------------------------------------------------- */
-#define CFG_TUSB_RHPORT0_MODE       (OPT_MODE_DEVICE | OPT_MODE_HIGH_SPEED)
+/* Start with Full-Speed for bring-up — switch to HS after enumeration works */
+#define CFG_TUSB_RHPORT0_MODE       (OPT_MODE_DEVICE | OPT_MODE_FULL_SPEED)
 
 /* -------------------------------------------------------------------------
  * RTOS: FreeRTOS is used on AMB82-MINI
@@ -38,7 +39,7 @@ extern "C" {
  * Set to 1 for bring-up; reduce to 0 for production.
  * ------------------------------------------------------------------------- */
 #ifndef CFG_TUSB_DEBUG
-#define CFG_TUSB_DEBUG              1
+#define CFG_TUSB_DEBUG              2  /* 2=warning for DWC2 debug output */
 #endif
 
 /* -------------------------------------------------------------------------
