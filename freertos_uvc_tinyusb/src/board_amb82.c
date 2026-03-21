@@ -282,6 +282,17 @@ static uint32_t usb_otg_irq_handler(void *data)
 {
     (void)data;
     usb_irq_count++;
+
+    /* Debug: log which interrupts are pending (first 20 only to avoid flood) */
+    if (usb_irq_count <= 20) {
+        uint32_t gintsts = DWC2_READ_REG32(USB_OTG_REG_BASE, 0x014);
+        uint32_t gintmsk = DWC2_READ_REG32(USB_OTG_REG_BASE, 0x018);
+        uint32_t active = gintsts & gintmsk;
+        /* Print bits: 3=SOF, 4=RXFLVL, 10=EarlySusp, 11=USBSusp, 12=USBRst, 13=EnumDone, 18=IEPINT, 19=OEPINT */
+        printf("[IRQ#%lu] GINTSTS=0x%08lX masked=0x%08lX\n",
+               (unsigned long)usb_irq_count, (unsigned long)gintsts, (unsigned long)active);
+    }
+
     dcd_int_handler(0);
     return 0;
 }

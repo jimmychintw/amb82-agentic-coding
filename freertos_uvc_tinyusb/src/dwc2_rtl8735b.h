@@ -294,9 +294,12 @@ void rtl8735b_usb_phy_init(void);
 
 TU_ATTR_ALWAYS_INLINE static inline void dwc2_phy_init(dwc2_regs_t* dwc2,
                                                         uint8_t hs_phy_type) {
-    (void)dwc2;
     (void)hs_phy_type;
     rtl8735b_usb_phy_init();
+
+    /* RTL8735B only has UTMI+ HS PHY — NEVER select dedicated FS PHY.
+     * Clear PHYSEL (bit 6) regardless of what TinyUSB sets. */
+    dwc2->gusbcfg &= ~(1UL << 6);  /* PHYSEL = 0 → use UTMI+ PHY */
 }
 
 /**
@@ -305,8 +308,12 @@ TU_ATTR_ALWAYS_INLINE static inline void dwc2_phy_init(dwc2_regs_t* dwc2,
  */
 TU_ATTR_ALWAYS_INLINE static inline void dwc2_phy_update(dwc2_regs_t* dwc2,
                                                           uint8_t hs_phy_type) {
-    (void)dwc2;
     (void)hs_phy_type;
+
+    /* RTL8735B has NO dedicated FS PHY — only UTMI+ HS PHY.
+     * TinyUSB's phy_fs_init() sets GUSBCFG_PHYSEL which selects a non-existent
+     * FS transceiver, breaking D+ pull-up. Clear it here after core reset. */
+    dwc2->gusbcfg &= ~(1UL << 6);  /* PHYSEL = bit 6, clear it */
 }
 
 /* ===========================================================================
