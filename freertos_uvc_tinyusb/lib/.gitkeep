@@ -1,0 +1,2 @@
+# TODO: Add TinyUSB as a git submodule:
+#   git submodule add https://github.com/hathach/tinyusb.git freertos_uvc_tinyusb/lib/tinyusb
