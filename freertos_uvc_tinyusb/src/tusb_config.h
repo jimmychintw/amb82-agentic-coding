@@ -19,6 +19,7 @@ extern "C" {
  * TUP_USBIP_DWC2        — activates the generic DWC2 device driver
  * TUP_USBIP_DWC2_RTL8735B — selects dwc2_rtl8735b.h inside dcd_dwc2.c
  * ------------------------------------------------------------------------- */
+#define CFG_TUSB_MCU                OPT_MCU_NONE
 #define TUP_USBIP_DWC2              1
 #define TUP_USBIP_DWC2_RTL8735B    1
 #define TUP_DCD_ENDPOINT_MAX        6   /* Conservative; verify from GHWCFG2 */
