@@ -41,6 +41,7 @@ list(
 	${TINYUSB_ROOT}/src/common/tusb_fifo.c
 	${TINYUSB_ROOT}/src/device/usbd.c
 	${TINYUSB_ROOT}/src/device/usbd_control.c
+	${TINYUSB_ROOT}/src/portable/synopsys/dwc2/dwc2_common.c
 	${TINYUSB_ROOT}/src/portable/synopsys/dwc2/dcd_dwc2.c
 	${TINYUSB_ROOT}/src/class/cdc/cdc_device.c
 )

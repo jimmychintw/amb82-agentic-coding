@@ -26,8 +26,12 @@ extern "C" {
 /* -------------------------------------------------------------------------
  * TinyUSB operating mode
  * ------------------------------------------------------------------------- */
-/* Full-Speed — HS chirp fails, try FS with UTMI+ PHY to avoid chirp issue */
-#define CFG_TUSB_RHPORT0_MODE       (OPT_MODE_DEVICE | OPT_MODE_FULL_SPEED)
+/* High-Speed device mode with DWC2 DMA */
+#define CFG_TUSB_RHPORT0_MODE       (OPT_MODE_DEVICE | OPT_MODE_HIGH_SPEED)
+
+/* DWC2 DMA mode — use internal DMA engine instead of slave (FIFO) mode */
+#define CFG_TUD_DWC2_DMA_ENABLE     1
+#define CFG_TUD_DWC2_SLAVE_ENABLE   0
 
 /* -------------------------------------------------------------------------
  * RTOS: FreeRTOS is used on AMB82-MINI

@@ -10,10 +10,6 @@
  * SDK reference:
  *   - component/usb/common_new/ameba_usb.h
  *   - component/soc/8735b/fwlib/rtl8735b/lib/source/ram/usb_otg/dwc_otg_regs.h
- *
- * NOTE: TinyUSB has not yet been added to lib/tinyusb/. Once it is, the
- * dwc2_controller_t array and the #include below must be adjusted to match
- * the actual struct definition in src/portable/synopsys/dwc2/dwc2_type.h.
  */
 
 #ifndef DWC2_RTL8735B_H
@@ -203,9 +199,9 @@ extern "C" {
 /* ===========================================================================
  * Section 6: TinyUSB DWC2 port — controller descriptor + inline functions
  *
- * This section satisfies the TinyUSB 0.17.0 DWC2 port contract as defined in
- * src/portable/synopsys/dwc2/dcd_dwc2.c.  The ESP32 port (dwc2_esp32.h) was
- * used as a template.
+ * This section satisfies the TinyUSB 0.20.0 DWC2 port contract as defined in
+ * src/portable/synopsys/dwc2/dwc2_common.h.  The ESP32 port (dwc2_esp32.h)
+ * was used as a template.
  * =========================================================================*/
 
 /* ===========================================================================
@@ -224,11 +220,11 @@ extern "C" {
     (*(volatile uint32_t *)((uint32_t)(base) + (uint32_t)(offset)) = (uint32_t)(value))
 
 /* Only provide TinyUSB port functions when compiling within the TinyUSB driver
- * context.  dcd_dwc2.c includes dwc2_type.h (which defines _TUSB_DWC2_TYPES_H_)
- * before including this header, so dwc2_controller_t, dwc2_regs_t, and TU_*
- * macros are all available.  board_amb82.c and other non-TinyUSB files skip
- * this entire section since they don't have the TinyUSB include chain. */
-#ifdef _TUSB_DWC2_TYPES_H_
+ * context.  dwc2_common.h (which defines TUSB_DWC2_COMMON_H) includes this
+ * header, so dwc2_controller_t, dwc2_regs_t, and TU_* macros are all
+ * available.  board_amb82.c and other non-TinyUSB files skip this entire
+ * section since they don't have the TinyUSB include chain. */
+#ifdef TUSB_DWC2_COMMON_H
 
 /** Conservative endpoint count — will be confirmed from GHWCFG2 at runtime */
 #define DWC2_EP_MAX   6
@@ -319,14 +315,14 @@ TU_ATTR_ALWAYS_INLINE static inline void dwc2_phy_update(dwc2_regs_t* dwc2,
  * Section 9: Optional — deinit / DMA cache management
  *
  * dwc2_phy_deinit() and cache-maintenance helpers are not required by the
- * TinyUSB 0.17.0 DWC2 port contract and are left as stubs for future use.
+ * TinyUSB 0.20.0 DWC2 port contract and are left as stubs for future use.
  *
  * If CONFIG_USB_DMA_ENABLE is set and D-cache is active on Cortex-M55,
  * implement the cache-maintenance wrappers and call them from the relevant
  * dcd_dwc2.c hooks via a local patch.
  * =========================================================================*/
 
-#endif /* _TUSB_DWC2_TYPES_H_ — end of TinyUSB-specific section */
+#endif /* TUSB_DWC2_COMMON_H — end of TinyUSB-specific section */
 
 #ifdef __cplusplus
 }
