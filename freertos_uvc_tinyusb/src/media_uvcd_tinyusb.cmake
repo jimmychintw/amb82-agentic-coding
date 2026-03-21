@@ -33,6 +33,7 @@ list(
 	APPEND app_example_sources
 	app_example.c
 	board_amb82.c
+	usb_descriptors.c
 	${TINYUSB_ROOT}/src/tusb.c
 	${TINYUSB_ROOT}/src/common/tusb_fifo.c
 	${TINYUSB_ROOT}/src/device/usbd.c
