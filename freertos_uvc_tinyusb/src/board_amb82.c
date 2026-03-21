@@ -378,6 +378,42 @@ void board_init_after_tusb(void)
         printf("[BSP] GOTGCTL forced B-valid = 0x%08lX\n", (unsigned long)*p_gotgctl);
     }
 
+    /* ================================================================
+     * Force ALL registers to match Realtek's working dump exactly.
+     * Realtek dump taken after successful enumeration as USB UVC CLASS.
+     * ================================================================ */
+    #define W(off, val) (*(volatile uint32_t *)(USB_OTG_REG_BASE + (off)) = (val))
+    #define R(off)      (*(volatile uint32_t *)(USB_OTG_REG_BASE + (off)))
+
+    /* GAHBCFG: Realtek=0x2F (DMAEn=1, HBSTLEN=7, TXFELVL=0, GINT=1) */
+    W(0x008, 0x0000002F);
+
+    /* GUSBCFG: Realtek=0x40001408 (ForceDevMode, PHYIF16, TOCAL=0, TRDT=5) */
+    W(0x00C, 0x40001408);
+
+    /* GNPTXFSIZ: Realtek=0x00800200 (TxFD=128@TxSA=512) */
+    W(0x028, 0x00800200);
+
+    /* DCFG: Realtek=0x08200000 (DevSpd=HS) */
+    W(0x800, 0x08200000);
+
+    /* DCTL: Realtek=0x00008000 (bit 15 set, SftDiscon=0) */
+    W(0x804, 0x00008000);
+
+    /* GOTGCTL: Realtek=0x000D0000 (no B-valid override) */
+    W(0x000, 0x000D0000);
+
+    /* GINTMSK: keep TinyUSB's mask, don't override with Realtek's
+     * (Realtek mask enables interrupts TinyUSB doesn't handle → hang) */
+
+    /* Clear all pending interrupts */
+    W(0x014, 0xFFFFFFFF);
+
+    printf("[BSP] Registers force-aligned to Realtek dump\n");
+
+    #undef W
+    #undef R
+
     board_usb_print_hwcfg();
 
     /* Debug: dump key DWC2 registers to diagnose enumeration */
