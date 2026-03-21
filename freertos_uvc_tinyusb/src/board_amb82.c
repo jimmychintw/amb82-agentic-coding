@@ -283,14 +283,16 @@ static uint32_t usb_otg_irq_handler(void *data)
     (void)data;
     usb_irq_count++;
 
-    /* Debug: log which interrupts are pending (first 20 only to avoid flood) */
-    if (usb_irq_count <= 20) {
+    /* Debug: log interrupts — first 50 */
+    if (usb_irq_count <= 50) {
         uint32_t gintsts = DWC2_READ_REG32(USB_OTG_REG_BASE, 0x014);
         uint32_t gintmsk = DWC2_READ_REG32(USB_OTG_REG_BASE, 0x018);
         uint32_t active = gintsts & gintmsk;
-        /* Print bits: 3=SOF, 4=RXFLVL, 10=EarlySusp, 11=USBSusp, 12=USBRst, 13=EnumDone, 18=IEPINT, 19=OEPINT */
-        printf("[IRQ#%lu] GINTSTS=0x%08lX masked=0x%08lX\n",
-               (unsigned long)usb_irq_count, (unsigned long)gintsts, (unsigned long)active);
+        uint32_t doepint0 = DWC2_READ_REG32(USB_OTG_REG_BASE, 0xB08);
+        uint32_t diepint0 = DWC2_READ_REG32(USB_OTG_REG_BASE, 0x908);
+        printf("[IRQ#%lu] m=0x%08lX OEP0=0x%X IEP0=0x%X\n",
+               (unsigned long)usb_irq_count, (unsigned long)active,
+               (unsigned)doepint0, (unsigned)diepint0);
     }
 
     dcd_int_handler(0);
@@ -369,76 +371,16 @@ void board_init_after_tusb(void)
 {
     printf("[BSP] board_init_after_tusb: USB stack is up\n");
 
-    /* Re-force B-session valid — TinyUSB's dcd_init() clears our earlier setting */
-    {
-        volatile uint32_t *p_gotgctl = (volatile uint32_t *)(USB_OTG_REG_BASE + 0x000UL);
-        uint32_t g = *p_gotgctl;
-        g |= (1UL << 19) | (1UL << 18);  /* BValidOvEn + BValidOvVal */
-        *p_gotgctl = g;
-        printf("[BSP] GOTGCTL forced B-valid = 0x%08lX\n", (unsigned long)*p_gotgctl);
-    }
-
-    /* ================================================================
-     * Force ALL registers to match Realtek's working dump exactly.
-     * Realtek dump taken after successful enumeration as USB UVC CLASS.
-     * ================================================================ */
-    #define W(off, val) (*(volatile uint32_t *)(USB_OTG_REG_BASE + (off)) = (val))
-    #define R(off)      (*(volatile uint32_t *)(USB_OTG_REG_BASE + (off)))
-
-    /* GAHBCFG: Realtek=0x2F (DMAEn=1, HBSTLEN=7, TXFELVL=0, GINT=1) */
-    W(0x008, 0x0000002F);
-
-    /* GUSBCFG: Realtek=0x40001408 (ForceDevMode, PHYIF16, TOCAL=0, TRDT=5) */
-    W(0x00C, 0x40001408);
-
-    /* GNPTXFSIZ: Realtek=0x00800200 (TxFD=128@TxSA=512) */
-    W(0x028, 0x00800200);
-
-    /* DCFG: Realtek=0x08200000 (DevSpd=HS) */
-    W(0x800, 0x08200000);
-
-    /* DCTL: Realtek=0x00008000 (bit 15 set, SftDiscon=0) */
-    W(0x804, 0x00008000);
-
-    /* GOTGCTL: Realtek=0x000D0000 (no B-valid override) */
-    W(0x000, 0x000D0000);
-
-    /* GINTMSK: keep TinyUSB's mask, don't override with Realtek's
-     * (Realtek mask enables interrupts TinyUSB doesn't handle → hang) */
-
-    /* Clear all pending interrupts */
-    W(0x014, 0xFFFFFFFF);
-
-    printf("[BSP] Registers force-aligned to Realtek dump\n");
-
-    #undef W
-    #undef R
-
+    /* Print key DMA registers */
+    printf("[BSP] GDFIFOCFG=0x%08lX GAHBCFG=0x%08lX DOEPDMA0=0x%08lX\n",
+           (unsigned long)DWC2_READ_REG32(USB_OTG_REG_BASE, 0x05C),
+           (unsigned long)DWC2_READ_REG32(USB_OTG_REG_BASE, 0x008),
+           (unsigned long)DWC2_READ_REG32(USB_OTG_REG_BASE, 0xB14));
+    printf("[BSP] DOEPCTL0=0x%08lX DOEPTSIZ0=0x%08lX GNPTXFSIZ=0x%08lX\n",
+           (unsigned long)DWC2_READ_REG32(USB_OTG_REG_BASE, 0xB00),
+           (unsigned long)DWC2_READ_REG32(USB_OTG_REG_BASE, 0xB10),
+           (unsigned long)DWC2_READ_REG32(USB_OTG_REG_BASE, 0x028));
     board_usb_print_hwcfg();
-
-    /* Debug: dump key DWC2 registers to diagnose enumeration */
-    uint32_t grxfsiz  = DWC2_READ_REG32(USB_OTG_REG_BASE, 0x024);  /* GRXFSIZ */
-    uint32_t gnptxfsiz = DWC2_READ_REG32(USB_OTG_REG_BASE, 0x028); /* GNPTXFSIZ */
-    uint32_t dcfg     = DWC2_READ_REG32(USB_OTG_REG_BASE, 0x800);  /* DCFG */
-    printf("[USB DBG] GRXFSIZ=0x%08lX GNPTXFSIZ=0x%08lX DCFG=0x%08lX\n",
-           (unsigned long)grxfsiz, (unsigned long)gnptxfsiz, (unsigned long)dcfg);
-
-    uint32_t gotgctl = DWC2_READ_REG32(USB_OTG_REG_BASE, 0x000);  /* GOTGCTL */
-    uint32_t gahbcfg = DWC2_READ_REG32(USB_OTG_REG_BASE, 0x008);  /* GAHBCFG */
-    uint32_t gusbcfg = DWC2_READ_REG32(USB_OTG_REG_BASE, 0x00C);  /* GUSBCFG */
-    uint32_t gintsts = DWC2_READ_REG32(USB_OTG_REG_BASE, 0x014);  /* GINTSTS */
-    uint32_t gintmsk = DWC2_READ_REG32(USB_OTG_REG_BASE, 0x018);  /* GINTMSK */
-    uint32_t dctl    = DWC2_READ_REG32(USB_OTG_REG_BASE, 0x804);  /* DCTL */
-    uint32_t dsts    = DWC2_READ_REG32(USB_OTG_REG_BASE, 0x808);  /* DSTS */
-
-    printf("[USB DBG] GOTGCTL=0x%08lX GAHBCFG=0x%08lX GUSBCFG=0x%08lX\n",
-           (unsigned long)gotgctl, (unsigned long)gahbcfg, (unsigned long)gusbcfg);
-    printf("[USB DBG] GINTSTS=0x%08lX GINTMSK=0x%08lX\n",
-           (unsigned long)gintsts, (unsigned long)gintmsk);
-    printf("[USB DBG] DCTL=0x%08lX DSTS=0x%08lX\n",
-           (unsigned long)dctl, (unsigned long)dsts);
-    printf("[USB DBG] DCTL.SftDiscon(bit1)=%lu  GUSBCFG.ForceDevMode(bit30)=%lu\n",
-           (unsigned long)((dctl >> 1) & 1), (unsigned long)((gusbcfg >> 30) & 1));
 }
 
 /* -------------------------------------------------------------------------
