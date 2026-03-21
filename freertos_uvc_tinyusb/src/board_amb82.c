@@ -98,23 +98,28 @@ static uint8_t usb_phy_read(uint8_t addr)
 {
     volatile uint32_t timeout;
 
-    /* Wait not busy */
+    /* DWCReadPhyReg: for addresses 0xE0-0xE7, clear bit 5 to switch to read mode */
+    uint8_t rd_addr = addr;
+    if ((addr & 0xE8) == 0xE0) {
+        rd_addr = addr & 0xDF;  /* Clear bit 5 */
+    }
+
+    /* Wait not busy (bit 27 clear) */
     timeout = 10000;
     while ((REG32(GPVNDCTL) & GPVNDCTL_BUSY) && --timeout) {}
 
-    /* Read high nibble */
-    uint32_t addr_high = ((uint32_t)(addr) << 8) & 0xF00UL;
-    REG32(GPVNDCTL) = addr_high | GPVNDCTL_READ;
+    /* Same command word as write (0x0A300000) — only addr differs */
+    uint32_t addr_high = ((uint32_t)(rd_addr) << 8) & 0xF00UL;
+    REG32(GPVNDCTL) = addr_high | GPVNDCTL_WRITE;  /* Same as write! */
     timeout = 10000;
     while (!(REG32(GPVNDCTL) & GPVNDCTL_BUSY) && --timeout) {}
 
-    /* Read low nibble */
-    uint32_t addr_low = ((uint32_t)(addr) << 4) & 0xF00UL;
-    REG32(GPVNDCTL) = addr_low | GPVNDCTL_READ;
+    uint32_t addr_low = ((uint32_t)(rd_addr) << 4) & 0xF00UL;
+    REG32(GPVNDCTL) = addr_low | GPVNDCTL_WRITE;
     timeout = 10000;
     while (!(REG32(GPVNDCTL) & GPVNDCTL_BUSY) && --timeout) {}
 
-    /* Read result from GPVNDCTL data field (bits [7:0]) or addon register */
+    /* Result is in GPVNDCTL low 8 bits (from disassembly: ldr r0,[r3,#0x34]; uxtb r0,r0) */
     return (uint8_t)(REG32(GPVNDCTL) & 0xFFUL);
 }
 
@@ -168,6 +173,22 @@ static void dwc_uphy_init(void)
     usb_phy_write(0xF4, val & 0x9F);
 
     printf("[USB PHY] PHY register programming complete\n");
+
+    /* Verify PHY writes by reading back key registers */
+    printf("[USB PHY] Readback verification:\n");
+    /* Select PAGE 0 */
+    val = usb_phy_read(0xF4);
+    usb_phy_write(0xF4, val & 0x9F);
+    printf("  PAGE0: E0=0x%02X(exp 0xA1) E4=0x%02X(exp 0x68) F1=0x%02X(exp 0x8C)\n",
+           usb_phy_read(0xE0), usb_phy_read(0xE4), usb_phy_read(0xF1));
+    /* Select PAGE 1 */
+    val = usb_phy_read(0xF4);
+    usb_phy_write(0xF4, (val & 0x9F) | 0x20);
+    printf("  PAGE1: E0=0x%02X(exp 0x05) E6=0x%02X(exp 0xD8) F7=0x%02X(exp 0x40)\n",
+           usb_phy_read(0xE0), usb_phy_read(0xE6), usb_phy_read(0xF7));
+    /* Back to PAGE 0 */
+    val = usb_phy_read(0xF4);
+    usb_phy_write(0xF4, val & 0x9F);
 }
 
 /* -------------------------------------------------------------------------
@@ -355,11 +376,54 @@ void rtl8735b_usb_irq_setup(void)
 /* -------------------------------------------------------------------------
  * board_init
  * ------------------------------------------------------------------------- */
+/* Dump all critical DWC2 registers for comparison */
+static void dump_dwc2_regs(const char *label)
+{
+    printf("\n=== DWC2 REG DUMP [%s] ===\n", label);
+    printf("GOTGCTL  = 0x%08lX\n", (unsigned long)DWC2_READ_REG32(USB_OTG_REG_BASE, 0x000));
+    printf("GOTGINT  = 0x%08lX\n", (unsigned long)DWC2_READ_REG32(USB_OTG_REG_BASE, 0x004));
+    printf("GAHBCFG  = 0x%08lX\n", (unsigned long)DWC2_READ_REG32(USB_OTG_REG_BASE, 0x008));
+    printf("GUSBCFG  = 0x%08lX\n", (unsigned long)DWC2_READ_REG32(USB_OTG_REG_BASE, 0x00C));
+    printf("GRSTCTL  = 0x%08lX\n", (unsigned long)DWC2_READ_REG32(USB_OTG_REG_BASE, 0x010));
+    printf("GINTSTS  = 0x%08lX\n", (unsigned long)DWC2_READ_REG32(USB_OTG_REG_BASE, 0x014));
+    printf("GINTMSK  = 0x%08lX\n", (unsigned long)DWC2_READ_REG32(USB_OTG_REG_BASE, 0x018));
+    printf("GRXFSIZ  = 0x%08lX\n", (unsigned long)DWC2_READ_REG32(USB_OTG_REG_BASE, 0x024));
+    printf("GNPTXFSIZ= 0x%08lX\n", (unsigned long)DWC2_READ_REG32(USB_OTG_REG_BASE, 0x028));
+    printf("GSNPSID  = 0x%08lX\n", (unsigned long)DWC2_READ_REG32(USB_OTG_REG_BASE, 0x040));
+    printf("GHWCFG2  = 0x%08lX\n", (unsigned long)DWC2_READ_REG32(USB_OTG_REG_BASE, 0x048));
+    printf("DCFG     = 0x%08lX\n", (unsigned long)DWC2_READ_REG32(USB_OTG_REG_BASE, 0x800));
+    printf("DCTL     = 0x%08lX\n", (unsigned long)DWC2_READ_REG32(USB_OTG_REG_BASE, 0x804));
+    printf("DSTS     = 0x%08lX\n", (unsigned long)DWC2_READ_REG32(USB_OTG_REG_BASE, 0x808));
+    printf("DIEPMSK  = 0x%08lX\n", (unsigned long)DWC2_READ_REG32(USB_OTG_REG_BASE, 0x810));
+    printf("DOEPMSK  = 0x%08lX\n", (unsigned long)DWC2_READ_REG32(USB_OTG_REG_BASE, 0x814));
+    printf("DAINT    = 0x%08lX\n", (unsigned long)DWC2_READ_REG32(USB_OTG_REG_BASE, 0x818));
+    printf("DAINTMSK = 0x%08lX\n", (unsigned long)DWC2_READ_REG32(USB_OTG_REG_BASE, 0x81C));
+    printf("DIEPTXF0 = 0x%08lX\n", (unsigned long)DWC2_READ_REG32(USB_OTG_REG_BASE, 0x028));
+    printf("DIEPTXF1 = 0x%08lX\n", (unsigned long)DWC2_READ_REG32(USB_OTG_REG_BASE, 0x104));
+    printf("DOEPCTL0 = 0x%08lX\n", (unsigned long)DWC2_READ_REG32(USB_OTG_REG_BASE, 0xB00));
+    printf("DOEPTSIZ0= 0x%08lX\n", (unsigned long)DWC2_READ_REG32(USB_OTG_REG_BASE, 0xB10));
+    printf("DIEPCTL0 = 0x%08lX\n", (unsigned long)DWC2_READ_REG32(USB_OTG_REG_BASE, 0x900));
+    printf("PCGCCTL  = 0x%08lX\n", (unsigned long)DWC2_READ_REG32(USB_OTG_REG_BASE, 0xE00));
+    printf("ADDON    = 0x%08lX\n", (unsigned long)DWC2_READ_REG32(USB_OTG_REG_BASE, USB_OTG_ADDON_REG_CTRL));
+    printf("GPVNDCTL = 0x%08lX\n", (unsigned long)DWC2_READ_REG32(USB_OTG_REG_BASE, 0x034));
+    printf("=== END DUMP ===\n\n");
+}
+
 void board_init(void)
 {
     printf("[BSP] AMB82-MINI board_init\n");
     rtl8735b_usb_phy_init();
-    board_usb_print_hwcfg();
+
+    /* Critical fix from disassembly: clear PCGCCTL.StopPclk BEFORE any other
+     * device register access. Realtek does this at the start of dwc_otg_core_dev_init.
+     * Without this, the PHY clock may be stopped and no packets are received. */
+    volatile uint32_t *pcgcctl = (volatile uint32_t *)(USB_OTG_REG_BASE + 0xE00UL);
+    uint32_t pcg = *pcgcctl;
+    *pcgcctl = pcg & ~1UL;  /* Clear bit 0 = StopPclk */
+    printf("[USB] PCGCCTL: 0x%08lX -> 0x%08lX (cleared StopPclk)\n",
+           (unsigned long)pcg, (unsigned long)*pcgcctl);
+
+    dump_dwc2_regs("AFTER_OUR_PHY_INIT");
 }
 
 /* -------------------------------------------------------------------------
@@ -368,17 +432,7 @@ void board_init(void)
 void board_init_after_tusb(void)
 {
     printf("[BSP] board_init_after_tusb: USB stack is up\n");
-
-    /* Re-force B-session valid — TinyUSB's dcd_init() clears our earlier setting */
-    {
-        volatile uint32_t *p_gotgctl = (volatile uint32_t *)(USB_OTG_REG_BASE + 0x000UL);
-        uint32_t g = *p_gotgctl;
-        g |= (1UL << 19) | (1UL << 18);  /* BValidOvEn + BValidOvVal */
-        *p_gotgctl = g;
-        printf("[BSP] GOTGCTL forced B-valid = 0x%08lX\n", (unsigned long)*p_gotgctl);
-    }
-
-    board_usb_print_hwcfg();
+    dump_dwc2_regs("AFTER_TINYUSB_INIT");
 
     /* Debug: dump key DWC2 registers to diagnose enumeration */
     uint32_t grxfsiz  = DWC2_READ_REG32(USB_OTG_REG_BASE, 0x024);  /* GRXFSIZ */
