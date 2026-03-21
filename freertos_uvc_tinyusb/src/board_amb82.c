@@ -8,9 +8,11 @@
  */
 
 #include <stdint.h>
+#include <stdbool.h>
 #include <stdio.h>
 #include "board_amb82.h"
 #include "dwc2_rtl8735b.h"
+#include "hal_irq.h"
 
 /* -------------------------------------------------------------------------
  * SDK HAL function — enables USB OTG clock/power domain at SoC level.
@@ -213,6 +215,39 @@ void rtl8735b_usb_phy_init(void)
            (unsigned long)gsnpsid);
 
     printf("[USB] USB power/PHY init complete\n");
+}
+
+/* -------------------------------------------------------------------------
+ * USB IRQ handler + setup via Realtek HAL
+ * ------------------------------------------------------------------------- */
+/* TinyUSB interrupt handler */
+extern void dcd_int_handler(uint8_t rhport);
+
+static void usb_otg_irq_handler(void)
+{
+    dcd_int_handler(0);
+}
+
+static uint8_t usb_irq_registered = 0;
+
+void rtl8735b_usb_irq_disable(void)
+{
+    hal_irq_disable((int32_t)USB_OTG_IRQ_NUM);
+}
+
+void rtl8735b_usb_irq_setup(void)
+{
+    if (usb_irq_registered) {
+        hal_irq_enable((int32_t)USB_OTG_IRQ_NUM);
+        return;
+    }
+
+    printf("[USB] Registering USB IRQ handler (IRQ %d)...\n", USB_OTG_IRQ_NUM);
+    hal_irq_set_vector((int32_t)USB_OTG_IRQ_NUM, (uint32_t)usb_otg_irq_handler);
+    hal_irq_set_priority((int32_t)USB_OTG_IRQ_NUM, 6);  /* Lower priority than FreeRTOS syscall */
+    hal_irq_enable((int32_t)USB_OTG_IRQ_NUM);
+    usb_irq_registered = 1;
+    printf("[USB] USB IRQ handler registered OK\n");
 }
 
 /* -------------------------------------------------------------------------

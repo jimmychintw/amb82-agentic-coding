@@ -254,23 +254,25 @@ static const dwc2_controller_t _dwc2_controller[] = {
  * Enable the USB OTG interrupt in the NVIC.
  * TinyUSB calls this after initialising the device controller.
  */
+/* Forward declaration — implemented in board_amb82.c */
+void rtl8735b_usb_irq_setup(void);
+
 TU_ATTR_ALWAYS_INLINE static inline void dwc2_dcd_int_enable(uint8_t rhport) {
     (void)rhport;
-    /* Direct NVIC ISER access — avoids dependency on CMSIS headers.
-     * IRQ 25: ISER[0] bit 25 (IRQs 0-31 are in ISER[0]) */
-    volatile uint32_t *nvic_iser = (volatile uint32_t *)0xE000E100UL;
-    nvic_iser[0] |= (1UL << USB_OTG_IRQ_NUM);
+    /* Use Realtek HAL to register + enable USB IRQ.
+     * hal_irq_set_vector sets the handler in the SDK's vector table.
+     * hal_irq_enable enables the interrupt through the SDK's NVIC wrapper. */
+    rtl8735b_usb_irq_setup();
 }
 
 /**
- * Disable the USB OTG interrupt in the NVIC.
- * TinyUSB calls this when tearing down or suspending the device controller.
+ * Disable the USB OTG interrupt in the NVIC via Realtek HAL.
  */
+void rtl8735b_usb_irq_disable(void);
+
 TU_ATTR_ALWAYS_INLINE static inline void dwc2_dcd_int_disable(uint8_t rhport) {
     (void)rhport;
-    /* Direct NVIC ICER access — IRQ 25 in ICER[0] bit 25 */
-    volatile uint32_t *nvic_icer = (volatile uint32_t *)0xE000E180UL;
-    nvic_icer[0] = (1UL << USB_OTG_IRQ_NUM);  /* Write 1 to clear/disable */
+    rtl8735b_usb_irq_disable();
 }
 
 /**
