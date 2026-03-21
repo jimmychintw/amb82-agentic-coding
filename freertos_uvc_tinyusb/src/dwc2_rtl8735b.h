@@ -308,11 +308,13 @@ TU_ATTR_ALWAYS_INLINE static inline void dwc2_phy_update(dwc2_regs_t* dwc2,
                                                           uint8_t hs_phy_type) {
     (void)hs_phy_type;
 
-    /* RTL8735B has NO dedicated FS PHY — only UTMI+ HS PHY.
-     * Clear PHYSEL and re-init PHY after core reset. */
-    dwc2->gusbcfg &= ~(1UL << 6);  /* PHYSEL = bit 6, clear it */
+    /* RTL8735B: after core reset, must restore PHY config */
+    dwc2->gusbcfg &= ~(1UL << 6);  /* PHYSEL = 0, use UTMI+ PHY */
 
-    /* Don't re-init PHY — Realtek's _usb_init() already did it properly */
+    /* Don't redo full PHY init — it disrupts the device connect state.
+     * Core reset preserves addon registers and PHY PLL.
+     * Only need to re-program PHY tuning registers via GPVNDCTL
+     * if they were lost during core reset. */
 }
 
 /* ===========================================================================
