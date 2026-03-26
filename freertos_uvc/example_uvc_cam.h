@@ -30,11 +30,11 @@
 #define MAX_H   sensor_params[USE_SENSOR].sensor_height
 
 /* 啟用的 UVC 格式 (PC 端可選) */
-#define UVCD_YUY2   1
-#define UVCD_NV12   1
+#define UVCD_YUY2   0
+#define UVCD_NV12   0
 #define UVCD_MJPG   1
-#define UVCD_H264   1
-#define UVCD_H265   1
+#define UVCD_H264   0
+#define UVCD_H265   0
 
 /* Tuning 模式 (一般使用設為 0) */
 #define UVCD_TUNNING_MODE           0
